@@ -1,0 +1,38 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import struct BsvHomeCore.BsvHomePaymentRecipient
+import BsvHomeCorePrimitives
+import Primitives
+import QRScanner
+import SwiftUI
+import Transfer
+
+struct RecipientNavigationView: View {
+    @Environment(\.viewModelFactory) private var viewModelFactory
+    @State private var model: RecipientSceneViewModel
+
+    init(model: RecipientSceneViewModel) {
+        _model = State(initialValue: model)
+    }
+
+    var body: some View {
+        RecipientScene(
+            model: model,
+        )
+        .sheet(item: $model.isPresentingScanner) { value in
+            ScanQRCodeNavigationStack(scanType: model.scanType(for: value)) {
+                model.onHandleScan($0, for: value)
+            }
+        }
+        .navigationDestination(for: BsvHomePaymentRecipient.self) { data in
+            AmountNavigationView(
+                model: viewModelFactory.amountScene(
+                    input: AmountInput(type: .transfer(recipient: data), asset: model.asset),
+                    wallet: model.wallet,
+                    onTransferAction: model.onTransferAction,
+                ),
+            )
+        }
+    }
+}

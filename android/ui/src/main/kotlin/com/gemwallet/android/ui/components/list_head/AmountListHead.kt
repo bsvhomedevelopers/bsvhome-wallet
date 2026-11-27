@@ -1,0 +1,501 @@
+package com.gemwallet.android.ui.components.list_head
+
+import androidx.annotation.StringRes
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.text.modifiers.TextAutoSizeLayoutScope
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Devices
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.gemwallet.android.domains.price.ValueDirection
+import com.gemwallet.android.ui.R
+import com.gemwallet.android.ui.components.DisplayText
+import com.gemwallet.android.ui.components.HideToggle
+import com.gemwallet.android.ui.components.InfoBottomSheet
+import com.gemwallet.android.ui.components.InfoSheetEntity
+import com.gemwallet.android.ui.components.isHidden
+import com.gemwallet.android.ui.components.mask
+import com.gemwallet.android.ui.components.image.AssetIcon
+import com.gemwallet.android.ui.components.image.IconWithBadge
+import com.gemwallet.android.ui.components.list_item.color
+import com.gemwallet.android.ui.icons.AppIcons
+import com.gemwallet.android.ui.theme.Spacer16
+import com.gemwallet.android.ui.theme.Spacer8
+import com.gemwallet.android.ui.theme.WalletTheme
+import com.gemwallet.android.ui.theme.actionIconGlyphSize
+import com.gemwallet.android.ui.theme.actionIconSize
+import com.gemwallet.android.ui.theme.alpha50
+import com.gemwallet.android.ui.theme.headerIconSize
+import com.gemwallet.android.ui.theme.paddingDefault
+import com.gemwallet.android.ui.theme.paddingHalfSmall
+import com.gemwallet.android.ui.theme.paddingMiddle
+import com.gemwallet.android.ui.theme.paddingSmall
+import com.gemwallet.android.ui.theme.smallIconSize
+import com.gemwallet.android.ui.theme.space10
+import com.gemwallet.android.ui.theme.space2
+import com.gemwallet.android.ui.theme.tinyIconSize
+import com.wallet.core.primitives.Asset
+import uniffi.gemstone.GemHeaderActions
+import uniffi.gemstone.GemHeaderButton
+import uniffi.gemstone.GemHeaderButtonKind
+import kotlin.math.floor
+
+private val headerChangeTextHeight = 24.dp
+
+@Composable
+fun AmountListHead(
+    amount: String,
+    hideToggle: HideToggle? = null,
+    equivalent: String? = null,
+    icon: Any? = null,
+    iconPlaceholder: String? = null,
+    changedValue: String? = null,
+    changedPercentages: String? = null,
+    changeState: ValueDirection = ValueDirection.None,
+    onClick: (() -> Unit)? = null,
+    onSubtitleClick: (() -> Unit)? = null,
+    actions: (@Composable () -> Unit)? = null,
+) {
+    val hidden = hideToggle.isHidden
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = paddingDefault, end = paddingDefault, bottom = paddingSmall),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            (icon as? Asset)?.let {
+                HeaderIcon(it)
+            } ?: IconWithBadge(
+                icon = icon,
+                placeholder = iconPlaceholder,
+                size = headerIconSize,
+                badgeBackgroundColor = MaterialTheme.colorScheme.surface,
+            )
+
+            icon?.let { Spacer16() }
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(paddingHalfSmall),
+            ) {
+                DisplayText(
+                    text = amount,
+                    hideToggle = hideToggle,
+                )
+                if (!equivalent.isNullOrEmpty()) {
+                    Text(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = equivalent,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                changedValue?.let { value ->
+                    val highlightColor = changeState.color()
+                    val changeTextStyle = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Row(
+                        modifier = Modifier
+                            .then(
+                                if (onSubtitleClick != null) {
+                                    Modifier
+                                        .clip(CircleShape)
+                                        .clickable(role = Role.Button, onClick = onSubtitleClick)
+                                        .padding(horizontal = paddingSmall)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .height(headerChangeTextHeight),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(space2),
+                    ) {
+                        Text(
+                            text = hideToggle.mask(value),
+                            color = highlightColor,
+                            style = changeTextStyle,
+                        )
+                        if (!hidden && !changedPercentages.isNullOrBlank()) {
+                            Text(
+                                text = "($changedPercentages)",
+                                color = highlightColor,
+                                style = changeTextStyle,
+                            )
+                        }
+                        if (onSubtitleClick != null) {
+                            Icon(
+                                imageVector = AppIcons.ShowChart,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                contentDescription = null,
+                                modifier = Modifier.size(tinyIconSize),
+                            )
+                        }
+                    }
+                }
+            }
+            if (actions != null) {
+                Spacer(modifier = Modifier.size(space10))
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    actions()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HeaderIcon(
+    asset: Asset?,
+    iconSize: Dp = headerIconSize,
+) {
+    if (asset == null) { return }
+    AssetIcon(
+        asset = asset,
+        size = iconSize,
+        badgeBackgroundColor = MaterialTheme.colorScheme.surface,
+    )
+}
+
+private data class AssetHeadActionItem(
+    @param:StringRes val title: Int,
+    val imageVector: ImageVector,
+    val enabled: Boolean,
+    val onClick: (() -> Unit)?,
+    val testTag: String? = null,
+)
+
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+@Composable
+fun AssetHeadActions(
+    actions: GemHeaderActions,
+    onTransfer: (() -> Unit)?,
+    onReceive: (() -> Unit)?,
+    onBuy: (() -> Unit)?,
+    onSwap: (() -> Unit)?,
+) {
+    var actionFontSize by remember { mutableStateOf(16.sp) }
+    val buttons = when (actions) {
+        GemHeaderActions.WatchOnly -> {
+            AssetWatchOnly()
+            return
+        }
+        is GemHeaderActions.Buttons -> actions.buttons
+    }
+    val items = buttons.map { button ->
+        when (button.kind) {
+            GemHeaderButtonKind.SEND -> AssetHeadActionItem(R.string.wallet_send, AppIcons.Send, button.isEnabled, onTransfer)
+            GemHeaderButtonKind.RECEIVE -> AssetHeadActionItem(R.string.wallet_receive, AppIcons.Receive, button.isEnabled, onReceive)
+            GemHeaderButtonKind.BUY -> AssetHeadActionItem(R.string.wallet_buy, AppIcons.Buy, button.isEnabled, onBuy, testTag = "assetBuy")
+            GemHeaderButtonKind.SWAP -> AssetHeadActionItem(R.string.wallet_swap, AppIcons.SwapVert, button.isEnabled, onSwap)
+        }
+    }
+    Row(
+        modifier = Modifier.width(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(paddingDefault),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        items.forEach { action ->
+            val onClick = action.onClick ?: return@forEach
+            AmountHeadAction(
+                modifier = Modifier
+                    .weight(1f)
+                    .then(if (action.testTag != null) Modifier.testTag(action.testTag) else Modifier),
+                title = stringResource(id = action.title),
+                imageVector = action.imageVector,
+                enabled = action.enabled,
+                contentDescription = stringResource(id = action.title),
+                fontSize = actionFontSize,
+                onNextFontSize = {
+                    if (actionFontSize > it) actionFontSize = it
+                },
+                onClick = onClick,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AssetWatchOnly() {
+    var showInfoSheet by remember { mutableStateOf<InfoSheetEntity?>(null) }
+    val openWatchWalletInfo = { showInfoSheet = InfoSheetEntity.WatchWalletInfo }
+    Button(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("watchWalletBanner"),
+        onClick = openWatchWalletInfo,
+        enabled = true,
+        shape = RoundedCornerShape(paddingDefault),
+        colors = ButtonDefaults
+            .buttonColors(
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                containerColor = MaterialTheme.colorScheme.background,
+            ),
+        contentPadding = PaddingValues(
+            horizontal = paddingDefault,
+            vertical = paddingMiddle,
+        ),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = AppIcons.Visibility,
+                contentDescription = null,
+            )
+            Spacer8()
+            Text(
+                modifier = Modifier.weight(1f),
+                text = stringResource(id = R.string.wallet_watch_tooltip_title),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.W400,
+            )
+            Spacer8()
+            IconButton(
+                modifier = Modifier
+                    .size(smallIconSize)
+                    .testTag("watchWalletInfo"),
+                onClick = openWatchWalletInfo,
+            ) {
+                Icon(
+                    imageVector = AppIcons.InfoOutlined,
+                    contentDescription = stringResource(R.string.common_learn_more),
+                )
+            }
+        }
+    }
+    InfoBottomSheet(item = showInfoSheet, onClose = { showInfoSheet = null })
+}
+
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+@Composable
+fun AmountHeadAction(
+    title: String,
+    fontSize: TextUnit,
+    imageVector: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onNextFontSize: (TextUnit) -> Unit,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(paddingDefault))
+            .clickable(onClick = onClick, enabled = enabled)
+            .padding(paddingSmall)
+        ,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(paddingSmall / (fontSize.value * 0.5f))
+    ) {
+        Box(
+            modifier = Modifier
+                .requiredSize(actionIconSize)
+                .background(
+                    color = MaterialTheme.colorScheme.primary.copy(
+                        alpha = if (enabled) 1f else alpha50,
+                    ),
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                modifier = Modifier.size(actionIconGlyphSize),
+                imageVector = imageVector,
+                tint = MaterialTheme.colorScheme.onPrimary.copy(
+                    alpha = if (enabled) 1f else alpha50,
+                ),
+                contentDescription = contentDescription,
+            )
+        }
+        Text(
+            text = title,
+            color = MaterialTheme.colorScheme.secondary,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.Medium,
+            ),
+            autoSize = ActionTextAutoSize(
+                minFontSize = 8.sp,
+                maxFontSize = 16.sp,
+                layoutSize = fontSize,
+                stepSize = 0.25.sp,
+                onNewLayoutSize = onNextFontSize,
+            ),
+            fontSize = fontSize,
+            maxLines = 1,
+        )
+    }
+}
+
+private class ActionTextAutoSize(
+    private var minFontSize: TextUnit,
+    private val maxFontSize: TextUnit,
+    private val layoutSize: TextUnit,
+    private val stepSize: TextUnit,
+    private val onNewLayoutSize: (TextUnit) -> Unit,
+) : TextAutoSize {
+
+
+    override fun TextAutoSizeLayoutScope.getFontSize(
+        constraints: Constraints,
+        text: AnnotatedString
+    ): TextUnit {
+        val stepSize = stepSize.toPx()
+        val smallest = minFontSize.toPx()
+        val largest = maxFontSize.toPx()
+        var min = smallest
+        var max = largest
+
+        if (layoutSize.toPx() > 0) {
+            val layoutResult = performLayout(constraints, text, layoutSize)
+            if (!layoutResult.didOverflow()) {
+                return layoutSize
+            }
+        }
+        var current = ((min + max) / 2)
+
+        while ((max - min) >= stepSize) {
+            val layoutResult = performLayout(constraints, text, current.toSp())
+            if (layoutResult.didOverflow()) {
+                max = current
+            } else {
+                min = current
+            }
+            current = (min + max) / 2
+        }
+        current = (floor((min - smallest) / stepSize) * stepSize + smallest)
+
+        if ((current + stepSize) <= largest) {
+            val layoutResult = performLayout(constraints, text, (current + stepSize).toSp())
+            if (!layoutResult.didOverflow()) {
+                current += stepSize
+            }
+        }
+        onNewLayoutSize(current.toSp())
+        return current.toSp()
+    }
+
+    private fun TextLayoutResult.didOverflow() =
+        when (layoutInput.overflow) {
+            TextOverflow.Clip,
+            TextOverflow.Visible -> didOverflowBounds()
+            TextOverflow.StartEllipsis,
+            TextOverflow.MiddleEllipsis,
+            TextOverflow.Ellipsis -> didOverflowByEllipsize()
+            else ->
+                throw IllegalArgumentException(
+                    "TextOverflow type ${layoutInput.overflow} is not supported."
+                )
+        }
+
+    private fun TextLayoutResult.didOverflowBounds() = didOverflowWidth || didOverflowHeight
+
+    private fun TextLayoutResult.didOverflowByEllipsize(): Boolean =
+        when (lineCount) {
+            0 -> false
+            1 -> isLineEllipsized(0)
+            else ->
+                when (layoutInput.overflow) {
+                    TextOverflow.StartEllipsis,
+                    TextOverflow.MiddleEllipsis -> didOverflowBounds()
+                    TextOverflow.Ellipsis -> isLineEllipsized(lineCount - 1)
+                    else -> false
+                }
+        }
+
+    override fun equals(other: Any?): Boolean {
+        if (other === this) return true
+        if (other == null) return false
+        if (other !is ActionTextAutoSize) return false
+
+        if (other.minFontSize != minFontSize) return false
+        if (other.maxFontSize != maxFontSize) return false
+        if (other.stepSize != stepSize) return false
+        if (other.layoutSize != layoutSize) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = minFontSize.hashCode()
+        result = 31 * result + maxFontSize.hashCode()
+        result = 31 * result + stepSize.hashCode()
+        result = 31 * result + layoutSize.hashCode()
+        return result
+    }
+
+}
+
+@Preview(locale = "ru", device = Devices.PIXEL)
+@Preview(locale = "ru", device = Devices.PIXEL_8)
+@Preview(locale = "ru", device = Devices.PIXEL_9)
+@Composable
+fun PreviewAssetHeadActions() {
+    WalletTheme {
+        AssetHeadActions(
+            actions = GemHeaderActions.Buttons(listOf(GemHeaderButtonKind.SEND, GemHeaderButtonKind.RECEIVE, GemHeaderButtonKind.BUY, GemHeaderButtonKind.SWAP).map { GemHeaderButton(it, isEnabled = true) }),
+            onTransfer = { },
+            onReceive = { },
+            onBuy = {},
+            onSwap = {},
+        )
+    }
+}

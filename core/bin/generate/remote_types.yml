@@ -1,0 +1,272 @@
+remote:
+  - BsvAddressBranch
+  - BsvAddressLocator
+  - BsvSpendInput
+  - BsvSpendChange
+  - BsvSpendMetadata
+  - TransactionUtxoInput
+  - TransactionExtended
+  - TransactionDirection
+  - Transaction
+  - PriceProvider
+  - Price
+  - AuthNonce
+  - AuthPayload
+  - Account
+  - AccountDataType
+  - AddressName
+  - AddressType
+  - Appearance
+  - ApplicationMetadata
+  - ApplicationMetadataSource
+  - BlockExplorerLink
+  - AssetFiatValue
+  - AssetType
+  - BannerEvent
+  - Banner
+  - BalanceMetadata
+  - BannerState
+  - ChainAddress
+  - ChainType
+  - ChartCandleStick
+  - ChartCandleUpdate
+  - ChartDateValue
+  - ChartPeriod
+  - ChartValuePercentage
+  - DelegationState
+  - ConnectionComponent
+  - ConnectionStatus
+  - Contact
+  - ContactAddress
+  - DelegationValidator
+  - Device
+  - DeviceLocale
+  - Asset
+  - AssetLink
+  - AssetRank
+  - AssetScore
+  - AssetProperties
+  - AssetBasic
+  - AssetList
+  - ChainAsset
+  - AssetAssociationType
+  - AssetAssociation
+  - PerpetualBasic
+  - AssetFull
+  - PaymentAmount
+  - PaymentRequest
+  - PaymentLink
+  - Payment
+  - AssetMarket
+  - AssetMetaData
+  - AssetPrice
+  - FeePriority
+  - FeeUnitType
+  - FiatRate
+  - FiatQuoteType
+  - FiatProviderName
+  - FiatProvider
+  - PaymentType
+  - FiatQuote
+  - FiatQuoteUrl
+  - GasPriceType
+  - PerpetualAccountMode
+  - PerpetualDirection
+  - PerpetualMarginType
+  - PerpetualAccountSummary
+  - PerpetualPortfolioTimeframeData
+  - PerpetualPortfolio
+  - TransactionPerpetualMetadata
+  - UTXO
+  - MarketsAssets
+  - MarketDominance
+  - Markets
+  - FiatAssets
+  - PortfolioAsset
+  - Perpetual
+  - PerpetualBalance
+  - PerpetualData
+  - PerpetualMarketData
+  - PerpetualMetadata
+  - PerpetualOrderType
+  - PerpetualPosition
+  - PerpetualPositionsSummary
+  - PerpetualProvider
+  - PerpetualTriggerOrder
+  - PerpetualConfirmData
+  - CancelOrderData
+  - TPSLOrderData
+  - PerpetualModifyPositionType
+  - PerpetualModifyConfirmData
+  - PerpetualReduceData
+  - PerpetualType
+  - Platform
+  - PlatformStore
+  - Wallet
+  - WalletType
+  - WalletSource
+  - TpslType
+  - WalletConnection
+  - WalletConnectionSession
+  - WalletConnectionSessionProposal
+  - WalletConnectionState
+  - WalletConnectionVerificationStatus
+  - VerificationStatus
+  - RewardStatus
+  - RewardRedemptionType
+  - RewardRedemptionOption
+  - ReferralQuota
+  - ReferralAllowance
+  - Rewards
+  - RewardRedemption
+  - RedemptionStatus
+  - RedemptionResult
+  - RecentActivityType
+  - Release
+  - Resource
+  - SimulationPayloadFieldType
+  - SimulationSeverity
+  - SimulationWarningApproval
+  - SimulationWarningType
+  - SimulationWarning
+  - SimulationBalanceChange
+  - SimulationHeader
+  - SimulationResult
+  - SolanaNftStandard
+  - SolanaTokenProgramId
+  - StakeProviderType
+  - SwapPriceImpact
+  - SwapPriceImpactType
+  - SwapProvider
+  - SimulationPayloadFieldDisplay
+  - SimulationPayloadFieldKind
+  - SimulationPayloadField
+  - LatencyType
+  - LinkType
+  - NameProvider
+  - NameRecord
+  - NFTAsset
+  - NFTAssetData
+  - NFTAttribute
+  - NFTAttributeType
+  - NFTCollection
+  - NFTData
+  - NFTImages
+  - NFTResource
+  - NFTType
+  - Node
+  - NodeState
+  - Latency
+  - PortfolioType
+  - PortfolioChartType
+  - PortfolioMarginUsage
+  - PortfolioChartData
+  - PortfolioStatistic
+  - PortfolioData
+  - PriceAlert
+  - PriceAlertDirection
+  - PriceAlertNotificationType
+  - ReportNft
+  - TotalFiatValue
+  - TransactionState
+  - TransactionType
+  - TransferDataOutputAction
+  - TransferDataOutputType
+  - TransferDataExtra
+  - TransactionInputType
+  - RedelegateData
+  - DelegationBase
+  - Delegation
+  - StakeType
+  - EarnType
+  - SwapQuoteDataType
+  - ApprovalData
+  - SwapProviderData
+  - SwapQuoteData
+  - SwapQuote
+  - SwapData
+  - ContractCallData
+  - TronVote
+  - TronUnfreeze
+  - TronStakeData
+  - PerpetualSearchData
+  - SearchResponse
+  - TransactionsResponse
+  - FiatQuoteRequest
+  - FiatTransactionStatus
+  - CoreEmoji
+  - CoreListItemBadge
+  - CoreListItemIcon
+  - CoreListItem
+  - InAppNotification
+  - SupportAgent
+  - SupportMessageSender
+  - SupportMessageStatus
+  - SupportMessageImage
+  - SupportMessage
+  - SupportTypingStatus
+  - SupportTyping
+  - FiatTransaction
+  - FiatTransactionData
+codes:
+  - Chain
+  - Currency
+identifiers:
+  - AssetId
+  - NFTAssetId
+  - NFTCollectionId
+  - PerpetualId
+  - TransactionId
+  - WalletId
+
+# Type names the generator has to know besides the ones above: what passes through a mapper
+# untouched, and what bsv_home_core declares under another name (an unqualified name is a bsv_home_core
+# custom type, and the declarations import it).
+scalars:
+  - String
+  - i8
+  - i16
+  - i32
+  - i64
+  - u8
+  - u16
+  - u32
+  - u64
+  - bool
+  - f32
+  - f64
+defaults:
+  PriceProvider: Coingecko
+  AssetRank: Unknown
+
+conversions:
+  UInt64:
+    kotlin:
+      - "{}.toLong()"
+      - "{}.toULong()"
+  BigInt:
+    kotlin:
+      - "{}.toString()"
+      - "java.math.BigInteger({})"
+    swift:
+      - "{}.description"
+      - "BigInt(stringLiteral: {})"
+  BigUint:
+    kotlin:
+      - "{}.toString()"
+      - "java.math.BigInteger({})"
+    swift:
+      - "{}.description"
+      - "BigUInt(stringLiteral: {})"
+  serde_json::Value:
+    swift:
+      - "AnyCodableValue(core: {})"
+      - "{}.json()"
+
+declared:
+  NaiveDateTime: primitives::chrono::NaiveDateTime
+  BigInt: BsvHomeBigInt
+  UInt64: primitives::UInt64
+  serde_json::Value: BsvHomeJsonValue
+  BigUint: BsvHomeBigUint
+  DateTime<Utc>: chrono::DateTime<chrono::Utc>

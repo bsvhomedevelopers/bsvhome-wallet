@@ -1,0 +1,318 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Style
+import SwiftUI
+
+public struct ListItemView: View {
+    public enum Style {
+        case standard
+        case wowPay
+    }
+
+    private let style: Style
+
+    private let model: ListItemModel
+
+    public init(model: ListItemModel, style: Style = .standard) {
+        self.style = style
+        self.model = model
+    }
+
+    public init(
+        title: String? = nil,
+        titleStyle: TextStyle = ListItemModel.StyleDefaults.titleStyle,
+        titleTag: String? = nil,
+        titleTagStyle: TextStyle = ListItemModel.StyleDefaults.titleTagStyle,
+        titleTagType: TitleTagType = .none,
+        titleExtra: String? = nil,
+        titleStyleExtra: TextStyle = ListItemModel.StyleDefaults.titleExtraStyle,
+        subtitle: String? = nil,
+        subtitleStyle: TextStyle = ListItemModel.StyleDefaults.subtitleStyle,
+        subtitleTagType: TitleTagType = .none,
+        subtitleExtra: String? = nil,
+        subtitleStyleExtra: TextStyle = ListItemModel.StyleDefaults.subtitleExtraStyle,
+        imageStyle: ListItemImageStyle? = nil,
+        placeholders: [ListItemViewPlaceholderType] = [],
+        infoAction: (() -> Void)? = nil,
+    ) {
+        self.init(model: ListItemModel(
+            title: title,
+            titleStyle: titleStyle,
+            titleTag: titleTag,
+            titleTagStyle: titleTagStyle,
+            titleTagType: titleTagType,
+            titleExtra: titleExtra,
+            titleStyleExtra: titleStyleExtra,
+            subtitle: subtitle,
+            subtitleStyle: subtitleStyle,
+            subtitleTagType: subtitleTagType,
+            subtitleExtra: subtitleExtra,
+            subtitleStyleExtra: subtitleStyleExtra,
+            imageStyle: imageStyle,
+            placeholders: placeholders,
+            infoAction: infoAction,
+        ))
+    }
+
+    public init(field: ListItemField, infoAction: (() -> Void)? = nil, style: Style = .standard) {
+        self.init(model: ListItemModel(
+            title: field.title.text,
+            titleStyle: field.title.style,
+            titleLineLimit: field.title.lineLimit,
+            subtitle: field.value.text,
+            subtitleStyle: field.value.style,
+            subtitleLineLimit: field.value.lineLimit,
+            infoAction: infoAction,
+        ), style: style)
+    }
+
+    public init(
+        title: TextValue? = nil,
+        titleExtra: TextValue? = nil,
+        titleTag: TextValue? = nil,
+        titleTagType: TitleTagType = .none,
+        subtitle: TextValue? = nil,
+        subtitleTagType: TitleTagType = .none,
+        subtitleExtra: TextValue? = nil,
+        imageStyle: ListItemImageStyle? = nil,
+        placeholders: [ListItemViewPlaceholderType] = [],
+        infoAction: (() -> Void)? = nil,
+    ) {
+        self.init(model: ListItemModel(
+            title: title?.text,
+            titleStyle: title?.style ?? ListItemModel.StyleDefaults.titleStyle,
+            titleLineLimit: title?.lineLimit,
+            titleTag: titleTag?.text,
+            titleTagStyle: titleTag?.style ?? ListItemModel.StyleDefaults.titleTagStyle,
+            titleTagLineLimit: titleTag?.lineLimit,
+            titleTagType: titleTagType,
+            titleExtra: titleExtra?.text,
+            titleStyleExtra: titleExtra?.style ?? ListItemModel.StyleDefaults.titleExtraStyle,
+            titleExtraLineLimit: titleExtra?.lineLimit,
+            subtitle: subtitle?.text,
+            subtitleStyle: subtitle?.style ?? ListItemModel.StyleDefaults.subtitleStyle,
+            subtitleLineLimit: subtitle?.lineLimit,
+            subtitleTagType: subtitleTagType,
+            subtitleExtra: subtitleExtra?.text,
+            subtitleStyleExtra: subtitleExtra?.style ?? ListItemModel.StyleDefaults.subtitleExtraStyle,
+            subtitleExtraLineLimit: subtitleExtra?.lineLimit,
+            imageStyle: imageStyle,
+            placeholders: placeholders,
+            infoAction: infoAction,
+        ))
+    }
+
+    public var body: some View {
+        HStack(alignment: model.imageAlignment, spacing: .space12) {
+            if let imageStyle = model.imageStyle {
+                AssetImageView(
+                    assetImage: imageStyle.assetImage,
+                    size: imageStyle.imageSize,
+                    style: .init(foregroundColor: imageStyle.foregroundColor, cornerRadius: imageStyle.cornerRadius, fontWeight: imageStyle.fontWeight),
+                )
+            }
+            HStack {
+                if let titleConfig = model.titleConfiguration {
+                    TitleView(configuration: titleConfig, style: style)
+                        .listRowInsets(.zero)
+                }
+
+                if model.hasSubtitlePlaceholder {
+                    Spacer()
+                    LoadingView(tint: model.loadingTintColor)
+                } else if let subtitle = model.subtitleView {
+                    Spacer(minLength: .extraSmall)
+                    SubtitleView(
+                        style: style,
+                        subtitle: subtitle,
+                        subtitleTagType: model.subtitleTagType,
+                        subtitleExtra: model.subtitleExtraTextValue,
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - UI Components
+
+// MARK: - TitleView
+
+extension ListItemView {
+    struct TitleView: View {
+        private let configuration: ListItemModel.TitleConfiguration
+        private let style: ListItemView.Style
+
+        init(configuration: ListItemModel.TitleConfiguration, style: ListItemView.Style) {
+            self.style = style
+            self.configuration = configuration
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: .tiny) {
+                HStack(spacing: .tiny) {
+                    Text(configuration.title.text)
+                        .textStyle(style == .standard ? configuration.title.style : configuration.title.style.wowPay(font: .wowPay.rowTitle, color: Colors.WowPay.heading))
+                        .lineLimit(configuration.title.lineLimit)
+                        .truncationMode(.tail)
+
+                    if let infoAction = configuration.infoAction {
+                        InfoButton(action: infoAction)
+                    }
+
+                    if let titleTag = configuration.titleTag {
+                        TitleTagView(titleTag: titleTag, titleTagType: configuration.titleTagType)
+                    }
+                }
+
+                if let extra = configuration.titleExtra {
+                    Text(extra.text)
+                        .textStyle(style == .standard ? extra.style : extra.style.wowPay(font: .wowPay.caption, color: Colors.WowPay.secondaryText))
+                        .lineLimit(extra.lineLimit)
+                }
+            }
+            .padding(.trailing, .small)
+        }
+    }
+}
+
+// MARK: - TitleTagView
+
+extension ListItemView {
+    struct TitleTagView: View {
+        let titleTag: TextValue
+        let titleTagType: TitleTagType
+
+        var body: some View {
+            switch titleTagType {
+            case .none:
+                tag {
+                    text
+                        .lineLimit(titleTag.lineLimit)
+                        .minimumScaleFactor(0.8)
+                }
+            case .progressView, .image:
+                ViewThatFits(in: .horizontal) {
+                    tag {
+                        HStack(spacing: .tiny) {
+                            text
+                                .lineLimit(1)
+                                .fixedSize()
+                            accessory
+                        }
+                    }
+                    accessory
+                }
+            }
+        }
+
+        private var text: some View {
+            Text(titleTag.text)
+                .textStyle(titleTag.style)
+        }
+
+        @ViewBuilder
+        private var accessory: some View {
+            switch titleTagType {
+            case .none:
+                EmptyView()
+            case let .progressView(scale):
+                LoadingView(size: .small, tint: titleTag.style.color)
+                    .scaleEffect(scale)
+            case let .image(image):
+                image
+            }
+        }
+
+        private func tag(@ViewBuilder content: () -> some View) -> some View {
+            content()
+                .padding(.horizontal, .tiny)
+                .padding(.vertical, .extraSmall)
+                .background(titleTag.style.background)
+                .cornerRadius(6)
+        }
+    }
+}
+
+// MARK: - ListItemView
+
+extension ListItemView {
+    struct SubtitleView: View {
+        let style: ListItemView.Style
+        let subtitle: TextValue
+        let subtitleTagType: TitleTagType
+        let subtitleExtra: TextValue?
+
+        var body: some View {
+            VStack(alignment: .trailing, spacing: .tiny) {
+                HStack(spacing: .tiny) {
+                    Text(subtitle.text)
+                        .textStyle(style == .standard ? subtitle.style : subtitle.style.wowPay(font: .wowPay.subtitle, color: Colors.WowPay.secondaryText))
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(subtitle.lineLimit)
+                        .truncationMode(.middle)
+
+                    switch subtitleTagType {
+                    case .none:
+                        EmptyView()
+                    case let .progressView(scale):
+                        LoadingView(size: .small, tint: subtitle.style.color)
+                            .scaleEffect(scale)
+                    case let .image(image):
+                        image
+                    }
+                }
+
+                if let extra = subtitleExtra {
+                    Text(extra.text)
+                        .textStyle(style == .standard ? extra.style : extra.style.wowPay(font: .wowPay.caption, color: Colors.WowPay.secondaryText))
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(extra.lineLimit)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Previews
+
+#Preview {
+    List {
+        Section("Simple Text Cases") {
+            ListItemView(model: .text(title: "Simple Title"))
+            ListItemView(model: .text(title: "Title with Subtitle", subtitle: "This is a subtitle"))
+            ListItemView(model: .text(title: "Long Title Long Title Long Title", subtitle: "Long Subtitle Long Subtitle"))
+            ListItemView(model: ListItemModel(
+                title: "Custom with Tag",
+                titleTag: "NEW",
+                titleTagStyle: TextStyle(font: .footnote, color: .white, background: .blue),
+                subtitle: "Custom configuration example",
+            ))
+
+            ListItemView(model: ListItemModel(
+                title: "With Image",
+                subtitle: "Custom with left image",
+                imageStyle: .list(assetImage: AssetImage.image(Images.System.faceid)),
+            ))
+
+            ListItemView(model: ListItemModel(
+                title: "Loading State",
+                placeholders: [.subtitle],
+            ))
+        }
+
+        Section("Complex Custom Examples") {
+            ListItemView(model: ListItemModel(
+                title: "Full Featured",
+                titleTag: "PRO",
+                titleTagStyle: TextStyle(font: .footnote, color: .white, background: .purple),
+                titleTagType: .image(Images.System.book),
+                titleExtra: "Extra info",
+                subtitle: "Main subtitle",
+                subtitleExtra: "Extra subtitle",
+                imageStyle: .list(assetImage: AssetImage.image(Images.System.eye)),
+            ))
+        }
+    }.listStyle(.insetGrouped)
+}

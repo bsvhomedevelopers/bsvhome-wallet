@@ -1,0 +1,11 @@
+package com.gemwallet.android.serializer
+
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+
+inline fun <reified T> T.toJson(): String = jsonEncoder.encodeToString(this)
+
+inline fun <reified T> String?.decodeJsonOrNull(): T? =
+    this?.let { runCatching { jsonEncoder.decodeFromString<T>(it) }.getOrNull() }
+
+inline fun <reified T> String.decodeJson(): T = jsonEncoder.decodeFromString(this)

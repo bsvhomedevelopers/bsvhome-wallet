@@ -1,0 +1,154 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+@testable import AppService
+import AppServiceTestKit
+import Foundation
+import protocol BsvHomeCore.BsvHomePerpetualServiceProtocol
+import class BsvHomeCore.BsvHomeWalletSessionService
+import protocol BsvHomeCore.BsvHomeWalletSessionServiceProtocol
+import BsvHomeCorePrimitivesTestKit
+import BsvHomeCoreServices
+import BsvHomeCoreServicesTestKit
+import Primitives
+import PrimitivesTestKit
+import Store
+import StoreTestKit
+import Testing
+
+struct AppLifecycleServiceTests {
+    @Test
+    func subscriptionSyncContinuesAfterFailure() async {
+        let attempts = Locked(wrappedValue: 0)
+        let successes = Locked(wrappedValue: 0)
+        let device = BsvHomeDeviceServiceMock(synchronize: {
+            attempts.wrappedValue += 1
+            if attempts.wrappedValue == 1 {
+                throw AnyError("Subscription unavailable")
+            }
+            successes.wrappedValue += 1
+        })
+        let service = AppLifecycleService.mock(deviceService: device)
+        let subscriptions = AsyncStream<Void> { continuation in
+            continuation.yield(())
+            continuation.yield(())
+            continuation.finish()
+        }
+
+        await service.synchronizeSubscriptions(subscriptions)
+
+        #expect(await device.synchronizeIfNeededCalls == 2)
+        #expect(successes.wrappedValue == 1)
+    }
+
+    @Test
+    func updateWalletConnectionsConnectsWhenCoreSaysSo() async throws {
+        let (service, observer, _, _) = try makeService(perpetualEnabled: true, wallets: [.hyperliquid], current: .hyperliquid)
+
+        await service.updateWalletConnections()
+
+        #expect(await observer.isConnected == true)
+    }
+
+    @Test
+    func updateWalletConnectionsSkipsWhenCoreDeclines() async throws {
+        let (service, observer, _, perpetuals) = try makeService(perpetualEnabled: true, wallets: [.hyperliquid], current: .hyperliquid)
+        perpetuals.connects = false
+
+        await service.updateWalletConnections()
+
+        #expect(await observer.isConnected == false)
+    }
+
+    @Test
+    func updateWalletConnectionsDisconnectsWhenCoreStopsConnecting() async throws {
+        let (service, observer, _, perpetuals) = try makeService(perpetualEnabled: true, wallets: [.hyperliquid], current: .hyperliquid)
+        await service.updateWalletConnections()
+
+        perpetuals.connects = false
+        await service.updateWalletConnections()
+
+        #expect(await observer.isConnected == false)
+    }
+
+    @Test
+    func updateWalletConnectionsDisconnectsWhenNoCurrentWallet() async throws {
+        let (service, observer, session, _) = try makeService(perpetualEnabled: true, wallets: [.hyperliquid], current: .hyperliquid)
+        await service.updateWalletConnections()
+
+        try session.setCurrent(walletId: nil)
+        await service.updateWalletConnections()
+
+        #expect(await observer.isConnected == false)
+    }
+
+    @Test
+    func updatePerpetualConnectionDisconnectsWhenDisabled() async throws {
+        let (service, observer, _, perpetuals) = try makeService(perpetualEnabled: true, wallets: [.hyperliquid], current: .hyperliquid)
+        await service.updateWalletConnections()
+
+        perpetuals.isPerpetualEnabled = false
+        await service.updatePerpetualConnection()
+
+        #expect(await observer.isConnected == false)
+    }
+
+    @Test
+    func updatePerpetualConnectionUpdatesMarketsWhenEnabled() async throws {
+        let (service, _, _, perpetuals) = try makeService(perpetualEnabled: true)
+
+        await service.updatePerpetualConnection()
+
+        #expect(perpetuals.syncMarketsCount == 1)
+        #expect(perpetuals.clearMarketsCount == 0)
+    }
+
+    @Test
+    func updatePerpetualConnectionClearsMarketsWhenDisabled() async throws {
+        let (service, _, _, perpetuals) = try makeService(perpetualEnabled: false)
+
+        await service.updatePerpetualConnection()
+
+        #expect(perpetuals.clearMarketsCount == 1)
+        #expect(try perpetuals.marketsUpdatedAt() == nil)
+    }
+
+    @Test
+    func updateWalletConnectionsKeepsMarketsUntouched() async throws {
+        let (service, _, _, perpetuals) = try makeService(perpetualEnabled: true, wallets: [.hyperliquid], current: .hyperliquid)
+
+        await service.updateWalletConnections()
+
+        #expect(perpetuals.syncMarketsCount == 0)
+        #expect(perpetuals.clearMarketsCount == 0)
+    }
+}
+
+extension AppLifecycleServiceTests {
+    func makeService(
+        perpetualEnabled: Bool,
+        wallets: [Wallet] = [],
+        current: Wallet? = nil,
+    ) throws -> (AppLifecycleService, PerpetualObserverMock, any BsvHomeWalletSessionServiceProtocol, BsvHomePerpetualServiceMock) {
+        let perpetuals = BsvHomePerpetualServiceMock()
+        perpetuals.isPerpetualEnabled = perpetualEnabled
+        let observer = PerpetualObserverMock()
+        let store = WalletStore.mock(db: .mockWithChains([.hyperliquid]))
+        for wallet in wallets {
+            try store.addWallet(wallet)
+        }
+        let walletSessionService = BsvHomeWalletSessionService.mock(store: store)
+        if let current {
+            try walletSessionService.setCurrent(walletId: current.id)
+        }
+        let service = try AppLifecycleService.mock(
+            hyperliquidObserverService: observer,
+            perpetualService: perpetuals,
+            walletSessionService: walletSessionService,
+        )
+        return (service, observer, walletSessionService, perpetuals)
+    }
+}
+
+private extension Wallet {
+    static let hyperliquid = Wallet.mock(type: .multicoin, accounts: [.mock(chain: .hyperliquid)])
+}

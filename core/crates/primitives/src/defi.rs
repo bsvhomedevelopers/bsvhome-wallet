@@ -1,0 +1,60 @@
+use num_bigint::BigUint;
+use serde::{Deserialize, Serialize};
+use strum::{AsRefStr, EnumString};
+
+use crate::{AssetId, Chain};
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, AsRefStr, EnumString)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum DefiProvider {
+    Zerion,
+    DeBank,
+    Jupiter,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, AsRefStr, EnumString)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum DefiPositionType {
+    Lending,
+    Staking,
+    LiquidityPool,
+    Rewards,
+    Other,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefiPosition {
+    pub id: String,
+    pub provider: DefiProvider,
+    pub chain: Chain,
+    pub protocol_info: DefiProtocol,
+    pub name: String,
+    pub position_type: DefiPositionType,
+    pub metadata: DefiPositionMetadata,
+    pub assets: Vec<DefiPositionAsset>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefiPositionMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apy: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct DefiProtocol {
+    pub name: String,
+    pub url: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefiPositionAsset {
+    pub asset_id: AssetId,
+    #[serde(serialize_with = "serde_serializers::serialize_biguint", deserialize_with = "serde_serializers::deserialize_biguint_from_str")]
+    pub value: BigUint,
+}

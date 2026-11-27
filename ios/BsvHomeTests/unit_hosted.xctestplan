@@ -1,0 +1,26 @@
+{
+  "configurations": [
+    {
+      "id": "D2F20471-D631-45B5-A92D-5118E9879DC4",
+      "name": "Test Configuration",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "codeCoverage": false,
+    "language": "en",
+    "region": "US",
+    "uiTestingScreenshotsLifetime": "keepNever",
+    "userAttachmentLifetime": "keepNever"
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:BsvHome.xcodeproj",
+        "identifier": "C30952C0299C39D80004C0F9",
+        "name": "BsvHomeTests"
+      }
+    }
+  ],
+  "version": 1
+}

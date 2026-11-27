@@ -1,0 +1,43 @@
+[package]
+name = "wowpay-mpc-ios"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+name = "wowpay_mpc_ios"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+libc = "0.2"
+dkls23-secp256k1 = { git = "https://github.com/0xCarbon/DKLs23.git", rev = "c9c407eae3447bcbfb539d77bb910ceb2d3a005e" }
+k256 = "=0.14.0-rc.8"
+elliptic-curve = { version = "=0.14.0-rc.29", features = ["sec1"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+aes-gcm = "0.11"
+hkdf = "0.12"
+sha2 = "0.10"
+ripemd = "0.1"
+getrandom = "0.4"
+hex = "0.4"
+bs58 = "0.5"
+zeroize = "1"
+secp256k1 = { version = "0.31", features = ["recovery"] }
+base64 = "0.22"
+rustcrypto-ff = "=0.14.0-rc.0"
+rustcrypto-group = "=0.14.0-rc.0"
+ecdsa = "=0.17.0-rc.16"
+rand = "=0.10.0"
+
+[dev-dependencies]
+tempfile = "3"
+
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = true
+codegen-units = 1

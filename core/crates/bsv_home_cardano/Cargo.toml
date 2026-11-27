@@ -1,0 +1,56 @@
+[package]
+name = "bsv_home_cardano"
+version = { workspace = true }
+edition = { workspace = true }
+publish = false
+
+[features]
+default = []
+rpc = [
+    "dep:async-trait",
+    "dep:bech32",
+    "dep:chain_traits",
+    "dep:chrono",
+    "dep:futures",
+    "dep:bsv_home_client",
+    "dep:bsv_home_hash",
+    "dep:hex",
+    "dep:num-traits",
+    "dep:serde_json",
+]
+signer = [
+    "dep:bech32",
+    "dep:curve25519-dalek",
+    "dep:bsv_home_hash",
+    "dep:hex",
+    "dep:num-traits",
+    "dep:sha2",
+    "dep:zeroize",
+]
+reqwest = ["dep:bsv_home_client", "bsv_home_client/reqwest"]
+chain_integration_tests = ["rpc", "reqwest", "settings/testkit"]
+
+[dependencies]
+primitives = { path = "../primitives" }
+num-bigint = { workspace = true }
+serde_serializers = { path = "../serde_serializers" }
+bech32 = { workspace = true, optional = true }
+bsv_home_hash = { path = "../bsv_home_hash", optional = true }
+futures = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
+chrono = { workspace = true, features = ["serde"], optional = true }
+async-trait = { workspace = true, optional = true }
+chain_traits = { path = "../chain_traits", optional = true }
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+num-traits = { workspace = true, optional = true }
+curve25519-dalek = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+zeroize = { workspace = true, optional = true }
+
+[dev-dependencies]
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+primitives = { path = "../primitives", features = ["testkit"] }
+tokio = { workspace = true, features = ["macros"] }
+settings = { path = "../settings", features = ["testkit"] }

@@ -1,0 +1,376 @@
+use num_bigint::BigInt;
+use primitives::{AssetId, AssetSubtype, Chain, FeeOption, FeePriority, FeeRate, GasPriceType, SOLANA_PRIORITY_FEE_SCALE, StakeType, TransactionFee, TransactionInputType};
+use std::collections::HashMap;
+
+use crate::{
+    constants::{DEFAULT_GAS_LIMIT, DEFAULT_SWAP_GAS_LIMIT, STATIC_BASE_FEE},
+    models::prioritization_fee::SolanaPrioritizationFee,
+};
+
+const STAKE_ACCOUNT_CREATION_FEE: u64 = 2_282_880;
+const PRIORITY_FEE_DIVISOR: i64 = 2;
+
+pub fn calculate_transaction_fee(input_type: &TransactionInputType, gas_price_type: &GasPriceType, recipient_token_address: Option<String>) -> TransactionFee {
+    let mut options = HashMap::new();
+    let recipient_asset = input_type.get_recipient_asset();
+    if recipient_asset.chain() == Chain::Solana && recipient_asset.id.token_subtype() == AssetSubtype::TOKEN && recipient_token_address.is_none() {
+        options.insert(
+            FeeOption::TokenAccountCreation,
+            BigInt::from(input_type.get_asset().id.chain.token_activation_fee().unwrap_or(0)),
+        );
+    }
+    if let TransactionInputType::Stake {
+        stake_type: StakeType::Stake(_), ..
+    } = input_type
+    {
+        options.insert(FeeOption::TokenAccountCreation, BigInt::from(STAKE_ACCOUNT_CREATION_FEE));
+    }
+    TransactionFee::new_gas_price_type(
+        gas_price_type.clone(),
+        gas_price_type.total_fee(),
+        get_gas_limit(input_type),
+        options,
+        AssetId::from_chain(Chain::Solana),
+    )
+}
+
+fn get_gas_limit(input_type: &TransactionInputType) -> BigInt {
+    match input_type {
+        TransactionInputType::Transfer { .. }
+        | TransactionInputType::Withdrawal { .. }
+        | TransactionInputType::Deposit { .. }
+        | TransactionInputType::TransferNft { .. }
+        | TransactionInputType::Account { .. }
+        | TransactionInputType::TokenApprove { .. }
+        | TransactionInputType::Generic { .. }
+        | TransactionInputType::Perpetual { .. }
+        | TransactionInputType::Earn { .. } => BigInt::from(DEFAULT_GAS_LIMIT),
+        TransactionInputType::Swap { swap_data, .. } => swap_data
+            .data
+            .gas_limit
+            .as_ref()
+            .and_then(|x| x.parse::<u64>().ok())
+            .map(BigInt::from)
+            .unwrap_or(BigInt::from(DEFAULT_SWAP_GAS_LIMIT)),
+        TransactionInputType::Stake { .. } => BigInt::from(DEFAULT_GAS_LIMIT),
+    }
+}
+
+fn get_multiple_of(input_type: &TransactionInputType) -> i64 {
+    match input_type {
+        TransactionInputType::Transfer { asset }
+        | TransactionInputType::Withdrawal { asset }
+        | TransactionInputType::Deposit { asset }
+        | TransactionInputType::TransferNft { asset, .. }
+        | TransactionInputType::Account { asset, .. }
+        | TransactionInputType::TokenApprove { asset, .. }
+        | TransactionInputType::Generic { asset, .. }
+        | TransactionInputType::Perpetual { asset, .. }
+        | TransactionInputType::Earn { asset, .. } => match &asset.id.token_subtype() {
+            AssetSubtype::NATIVE => 12_500,
+            AssetSubtype::TOKEN => 25_000,
+        },
+        TransactionInputType::Stake { .. } => 12_500,
+        TransactionInputType::Swap { .. } => 50_000,
+    }
+}
+
+fn round_up_to_multiple(value: i64, multiple: i64) -> i64 {
+    ((value + multiple - 1) / multiple) * multiple
+}
+
+pub fn calculate_fee_rates(input_type: &TransactionInputType, prioritization_fees: &[SolanaPrioritizationFee]) -> Vec<FeeRate> {
+    let mut fees: Vec<i64> = prioritization_fees.iter().map(|f| f.prioritization_fee).collect();
+    fees.sort_by(|a, b| b.cmp(a));
+    fees.truncate(5);
+
+    let multiple_of = get_multiple_of(input_type);
+    let static_base_fee = BigInt::from(STATIC_BASE_FEE);
+
+    let total_priority_base = if fees.is_empty() {
+        BigInt::from(multiple_of)
+    } else {
+        let average = fees.iter().sum::<i64>() / fees.len() as i64 / PRIORITY_FEE_DIVISOR;
+        BigInt::from(std::cmp::max(round_up_to_multiple(average, multiple_of), multiple_of))
+    };
+
+    let gas_limit = get_gas_limit(input_type);
+
+    [FeePriority::Normal, FeePriority::Fast]
+        .iter()
+        .map(|priority| {
+            let total_priority = match priority {
+                FeePriority::Normal => total_priority_base.clone(),
+                FeePriority::Fast => &total_priority_base * 3,
+            };
+
+            let priority_fee = (total_priority.clone() * gas_limit.clone()) / BigInt::from(SOLANA_PRIORITY_FEE_SCALE);
+            let unit_price = total_priority;
+
+            FeeRate::new(*priority, GasPriceType::solana(static_base_fee.clone(), priority_fee, unit_price))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use primitives::swap::SwapData;
+    use primitives::{Asset, AssetId, AssetType, Chain, DelegationValidator, SwapProvider, asset_constants::SOLANA_USDC_ASSET_ID};
+
+    fn mock_swap_data_with_gas_limit(provider: SwapProvider, gas_limit: Option<&str>) -> SwapData {
+        let mut data = SwapData::mock_with_provider(provider);
+        data.data.gas_limit = gas_limit.map(|s| s.to_string());
+        data
+    }
+
+    #[test]
+    fn test_calculate_transaction_fee() {
+        let gas_price_type = GasPriceType::eip1559(BigInt::from(5000u64), BigInt::from(15000u64));
+        let input_type = TransactionInputType::Transfer {
+            asset: Asset {
+                id: AssetId::from_chain(Chain::Solana),
+                name: "SOL".to_string(),
+                symbol: "SOL".to_string(),
+                decimals: 9,
+                asset_type: AssetType::NATIVE,
+            },
+        };
+
+        let fee = calculate_transaction_fee(&input_type, &gas_price_type, None);
+
+        assert_eq!(fee.fee, BigInt::from(20_000u64));
+        assert_eq!(fee.gas_price_type.gas_price(), BigInt::from(5000u64));
+        assert_eq!(fee.gas_price_type.priority_fee(), BigInt::from(15000u64));
+        assert_eq!(fee.gas_limit, BigInt::from(100_000u64));
+        assert!(fee.options.is_empty());
+    }
+
+    #[test]
+    fn test_calculate_transaction_fee_swap() {
+        let gas_price_type = GasPriceType::solana(5000u64, 30000u64, 100u64);
+        let input_type = TransactionInputType::Swap {
+            from_asset: Asset::mock_sol(),
+            to_asset: Asset::mock_spl_token(),
+            swap_data: mock_swap_data_with_gas_limit(SwapProvider::Jupiter, None),
+        };
+
+        let fee = calculate_transaction_fee(&input_type, &gas_price_type, Some("recipient_token_address".to_string()));
+
+        assert_eq!(fee.fee, BigInt::from(35_000u64));
+        assert_eq!(fee.gas_limit, BigInt::from(DEFAULT_SWAP_GAS_LIMIT));
+    }
+
+    #[test]
+    fn test_calculate_transaction_fee_swap_with_provider_gas_limit() {
+        let gas_price_type = GasPriceType::solana(5000u64, 30000u64, 100u64);
+        let input_type = TransactionInputType::Swap {
+            from_asset: Asset::mock_sol(),
+            to_asset: Asset::mock_spl_token(),
+            swap_data: mock_swap_data_with_gas_limit(SwapProvider::Okx, Some("550000")),
+        };
+
+        let fee = calculate_transaction_fee(&input_type, &gas_price_type, Some("recipient_token_address".to_string()));
+
+        assert_eq!(fee.gas_limit, BigInt::from(550_000u64));
+    }
+
+    #[test]
+    fn test_calculate_transaction_fee_cross_chain_swap_without_token_creation() {
+        let gas_price_type = GasPriceType::eip1559(BigInt::from(5000u64), BigInt::from(15000u64));
+        let input_type = TransactionInputType::Swap {
+            from_asset: Asset::mock_spl_token(),
+            to_asset: Asset::mock_ethereum_usdc(),
+            swap_data: SwapData::mock_with_provider(SwapProvider::Jupiter),
+        };
+
+        let fee = calculate_transaction_fee(&input_type, &gas_price_type, None);
+
+        assert!(!fee.options.contains_key(&FeeOption::TokenAccountCreation));
+    }
+
+    #[test]
+    fn test_calculate_fee_rates() {
+        let fees = vec![SolanaPrioritizationFee { prioritization_fee: 25_000 }];
+        let input_type = TransactionInputType::Transfer {
+            asset: Asset {
+                id: AssetId::from_chain(Chain::Solana),
+                name: "SOL".to_string(),
+                symbol: "SOL".to_string(),
+                decimals: 9,
+                asset_type: AssetType::NATIVE,
+            },
+        };
+
+        let rates = calculate_fee_rates(&input_type, &fees);
+
+        assert_eq!(rates.len(), 2);
+
+        for rate in &rates {
+            assert_eq!(rate.gas_price_type.gas_price(), BigInt::from(5000u64));
+        }
+
+        assert_eq!(rates[0].priority, FeePriority::Normal);
+        assert_eq!(rates[0].gas_price_type.priority_fee(), BigInt::from(1_250));
+        assert_eq!(rates[0].gas_price_type.unit_price(), BigInt::from(12_500));
+
+        assert_eq!(rates[1].priority, FeePriority::Fast);
+        assert_eq!(rates[1].gas_price_type.priority_fee(), BigInt::from(3_750));
+        assert_eq!(rates[1].gas_price_type.unit_price(), BigInt::from(37_500));
+    }
+
+    #[test]
+    fn test_calculate_fee_rates_empty_fees() {
+        let fees = vec![];
+        let input_type = TransactionInputType::Transfer {
+            asset: Asset {
+                id: AssetId::from_chain(Chain::Solana),
+                name: "SOL".to_string(),
+                symbol: "SOL".to_string(),
+                decimals: 9,
+                asset_type: AssetType::NATIVE,
+            },
+        };
+
+        let rates = calculate_fee_rates(&input_type, &fees);
+
+        assert_eq!(rates.len(), 2);
+        assert_eq!(rates[0].gas_price_type.priority_fee(), BigInt::from(1_250u64));
+        assert_eq!(rates[1].gas_price_type.priority_fee(), BigInt::from(3_750u64));
+    }
+
+    #[test]
+    fn test_calculate_fee_rates_spl_token() {
+        let fees = vec![SolanaPrioritizationFee { prioritization_fee: 80_000 }];
+        let input_type = TransactionInputType::Transfer {
+            asset: Asset {
+                id: AssetId::from_chain(Chain::Solana),
+                name: "USDC".to_string(),
+                symbol: "USDC".to_string(),
+                decimals: 6,
+                asset_type: AssetType::SPL,
+            },
+        };
+
+        let rates = calculate_fee_rates(&input_type, &fees);
+        assert_eq!(rates.len(), 2);
+
+        assert_eq!(rates[0].gas_price_type.priority_fee(), BigInt::from(5_000u64));
+        assert_eq!(rates[1].gas_price_type.priority_fee(), BigInt::from(15_000u64));
+    }
+
+    #[test]
+    fn test_calculate_fee_rates_swap() {
+        let fees = vec![SolanaPrioritizationFee { prioritization_fee: 150_000 }];
+        let input_type = TransactionInputType::Swap {
+            from_asset: Asset::mock_sol(),
+            to_asset: Asset::mock_spl_token(),
+            swap_data: mock_swap_data_with_gas_limit(SwapProvider::Jupiter, None),
+        };
+
+        let rates = calculate_fee_rates(&input_type, &fees);
+        assert_eq!(rates.len(), 2);
+
+        assert_eq!(rates[0].gas_price_type.priority_fee(), BigInt::from(42_000u64));
+        assert_eq!(rates[1].gas_price_type.priority_fee(), BigInt::from(126_000u64));
+    }
+
+    #[test]
+    fn test_calculate_fee_rates_multiple_fees() {
+        let fees = vec![
+            SolanaPrioritizationFee { prioritization_fee: 200_000 },
+            SolanaPrioritizationFee { prioritization_fee: 150_000 },
+            SolanaPrioritizationFee { prioritization_fee: 175_000 },
+            SolanaPrioritizationFee { prioritization_fee: 125_000 },
+            SolanaPrioritizationFee { prioritization_fee: 225_000 },
+            SolanaPrioritizationFee { prioritization_fee: 100_000 }, // Should be truncated (6th fee)
+        ];
+        let input_type = TransactionInputType::Transfer {
+            asset: Asset {
+                id: AssetId::from_chain(Chain::Solana),
+                name: "SOL".to_string(),
+                symbol: "SOL".to_string(),
+                decimals: 9,
+                asset_type: AssetType::NATIVE,
+            },
+        };
+
+        let rates = calculate_fee_rates(&input_type, &fees);
+        assert_eq!(rates.len(), 2);
+
+        assert_eq!(rates[0].gas_price_type.priority_fee(), BigInt::from(8_750u64));
+        assert_eq!(rates[1].gas_price_type.priority_fee(), BigInt::from(26_250u64));
+    }
+
+    #[test]
+    fn test_native_transfer_fee_rates_halve_the_sampled_priority() {
+        let fees = vec![SolanaPrioritizationFee { prioritization_fee: 150_000 }];
+        let input_type = TransactionInputType::Transfer {
+            asset: Asset {
+                id: AssetId::from_chain(Chain::Solana),
+                name: "SOL".to_string(),
+                symbol: "SOL".to_string(),
+                decimals: 9,
+                asset_type: AssetType::NATIVE,
+            },
+        };
+
+        let rates = calculate_fee_rates(&input_type, &fees);
+
+        assert_eq!(rates[0].gas_price_type.priority_fee(), BigInt::from(7_500));
+        assert_eq!(rates[1].gas_price_type.priority_fee(), BigInt::from(22_500));
+    }
+
+    #[test]
+    fn test_calculate_transaction_fee_token_recipient_exists() {
+        let gas_price_type = GasPriceType::eip1559(BigInt::from(5000u64), BigInt::from(15000u64));
+        let asset = Asset {
+            id: SOLANA_USDC_ASSET_ID.clone(),
+            name: "USDC".to_string(),
+            symbol: "USDC".to_string(),
+            decimals: 6,
+            asset_type: AssetType::SPL,
+        };
+        let input_type = TransactionInputType::Transfer { asset };
+
+        let fee = calculate_transaction_fee(&input_type, &gas_price_type, Some("recipient_token_address".to_string()));
+
+        assert_eq!(fee.fee, BigInt::from(20_000u64));
+        assert!(fee.options.is_empty());
+    }
+
+    #[test]
+    fn test_calculate_transaction_fee_token_recipient_new() {
+        let gas_price_type = GasPriceType::eip1559(BigInt::from(5000u64), BigInt::from(15000u64));
+        let asset = Asset {
+            id: SOLANA_USDC_ASSET_ID.clone(),
+            name: "USDC".to_string(),
+            symbol: "USDC".to_string(),
+            decimals: 6,
+            asset_type: AssetType::SPL,
+        };
+        let input_type = TransactionInputType::Transfer { asset };
+
+        let fee = calculate_transaction_fee(&input_type, &gas_price_type, None);
+
+        assert_eq!(fee.fee, BigInt::from(2_059_280u64)); // 20_000 gas + 2_039_280 token account creation
+        assert_eq!(fee.options.len(), 1);
+        assert!(fee.options.contains_key(&FeeOption::TokenAccountCreation));
+        assert_eq!(fee.options[&FeeOption::TokenAccountCreation], BigInt::from(2_039_280u64));
+    }
+
+    #[test]
+    fn test_calculate_transaction_fee_stake_delegate() {
+        let gas_price_type = GasPriceType::solana(5_000u64, 2_500u64, 25_000u64);
+        let validator = DelegationValidator::stake(Chain::Solana, "validator".to_string(), "validator".to_string(), true, 0.0, 0.0);
+        let input_type = TransactionInputType::Stake {
+            asset: Asset::mock_sol(),
+            stake_type: StakeType::Stake(validator),
+        };
+
+        let fee = calculate_transaction_fee(&input_type, &gas_price_type, None);
+
+        assert_eq!(fee.fee, BigInt::from(2_290_380u64));
+        assert_eq!(fee.options[&FeeOption::TokenAccountCreation], BigInt::from(STAKE_ACCOUNT_CREATION_FEE));
+    }
+}

@@ -1,0 +1,44 @@
+[package]
+name = "bsv_home_bitcoin"
+version = { workspace = true }
+edition = { workspace = true }
+publish = false
+
+[features]
+default = []
+rpc = ["dep:chain_traits", "dep:bsv_home_client", "signer"]
+signer = ["dep:bech32", "dep:bitcoin", "dep:bitcoincash-addr", "dep:bs58", "dep:bsv_home_hash", "dep:hex", "dep:signer"]
+reqwest = ["bsv_home_client/reqwest"]
+unit_tests = ["signer"]
+chain_integration_tests = ["rpc", "reqwest", "primitives/testkit", "settings/testkit"]
+
+[dependencies]
+zeroize = { workspace = true }
+num-traits = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+primitives = { path = "../primitives" }
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+chain_traits = { path = "../chain_traits", optional = true }
+number_formatter = { path = "../number_formatter" }
+async-trait = { workspace = true }
+futures = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+num-bigint = { workspace = true }
+serde_serializers = { path = "../serde_serializers", features = ["bigint"] }
+
+# Optional signer dependencies
+signer = { path = "../signer", optional = true }
+bsv_home_hash = { path = "../bsv_home_hash", optional = true }
+hex = { workspace = true, optional = true }
+bitcoin = { workspace = true, optional = true }
+bitcoincash-addr = { workspace = true, optional = true }
+bech32 = { workspace = true, optional = true }
+bs58 = { workspace = true, optional = true }
+
+[dev-dependencies]
+chain_traits = { path = "../chain_traits", features = ["testkit"] }
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+primitives = { path = "../primitives", features = ["testkit"] }
+settings = { path = "../settings", features = ["testkit"] }

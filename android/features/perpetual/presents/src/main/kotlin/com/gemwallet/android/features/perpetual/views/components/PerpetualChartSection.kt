@@ -1,0 +1,152 @@
+package com.gemwallet.android.features.perpetual.views.components
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import com.gemwallet.android.domains.price.PriceChangeCalculator
+import com.gemwallet.android.ext.toGem
+import com.gemwallet.android.math.getRelativeDate
+import com.gemwallet.android.model.CurrencyFormatter
+import com.gemwallet.android.model.NumericFormatter
+import com.gemwallet.android.ui.R
+import com.gemwallet.android.ui.components.chart.CandlestickTooltip
+import com.gemwallet.android.ui.components.chart.ChartStateView
+import com.gemwallet.android.ui.components.chart.GemCandlestickChart
+import com.gemwallet.android.ui.models.chart.CandlestickChartUIModel
+import com.gemwallet.android.ui.models.chart.CandlestickTooltipUIModel
+import com.gemwallet.android.ui.models.chart.ChartHeaderUIModel
+import com.gemwallet.android.ui.models.StateViewType
+import uniffi.gemstone.GemChartHeader
+import com.gemwallet.android.ui.models.dataOrNull
+import com.gemwallet.android.ui.theme.paddingSmall
+import com.wallet.core.primitives.ChartCandleStick
+import com.wallet.core.primitives.ChartPeriod
+import com.wallet.core.primitives.Currency
+import com.wallet.core.primitives.PerpetualPosition
+import uniffi.gemstone.GemPerpetualChartLine
+import uniffi.gemstone.GemPerpetualChartLineKind
+import uniffi.gemstone.perpetualChartLayout
+
+private val TooltipRightSafeArea = 96.dp
+
+@Composable
+internal fun PerpetualChartSection(
+    state: StateViewType<List<ChartCandleStick>>,
+    period: ChartPeriod,
+    position: PerpetualPosition?,
+    onPeriodSelect: (ChartPeriod) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val data = state.dataOrNull.orEmpty()
+    var selectedIndex by remember(period) { mutableStateOf<Int?>(null) }
+    val safeSelectedIndex = selectedIndex?.takeIf { it in data.indices }
+    val selectedCandle = safeSelectedIndex?.let { data[it] }
+    val baseCandle = data.firstOrNull()
+    val lastCandle = data.lastOrNull()
+    val isSelectedRightHalf = safeSelectedIndex?.let { it.toFloat() / data.size.toFloat() > 0.5f } ?: false
+
+    val currencyFormatter = remember { CurrencyFormatter(type = CurrencyFormatter.Type.Currency, currency = Currency.USD) }
+    val numericFormatter = remember { NumericFormatter() }
+    val volumeFormatter = remember { CurrencyFormatter(type = CurrencyFormatter.Type.Abbreviated, currency = Currency.USD) }
+    val currencyString: (Double) -> String = remember(currencyFormatter) { currencyFormatter::string }
+    val numericString: (Double) -> String = remember(numericFormatter) { { numericFormatter.string(it) } }
+    val volumeString: (Double) -> String = remember(volumeFormatter) { volumeFormatter::string }
+
+    val entryLabel = stringResource(R.string.charts_entry)
+    val liquidationLabel = stringResource(R.string.perpetual_liquidation)
+    val stopLossLabel = stringResource(R.string.perpetual_stop_loss)
+    val takeProfitLabel = stringResource(R.string.perpetual_take_profit)
+    val lineLabel: (GemPerpetualChartLine) -> String = remember(entryLabel, liquidationLabel, stopLossLabel, takeProfitLabel, numericString) {
+        { line ->
+            val label = when (line.kind) {
+                GemPerpetualChartLineKind.ENTRY -> entryLabel
+                GemPerpetualChartLineKind.LIQUIDATION -> liquidationLabel
+                GemPerpetualChartLineKind.STOP_LOSS -> stopLossLabel
+                GemPerpetualChartLineKind.TAKE_PROFIT -> takeProfitLabel
+            }
+            "$label | ${numericString(line.price)}"
+        }
+    }
+
+    val chartUIModel = remember(data, position, lineLabel, numericString) {
+        if (data.isEmpty()) null
+        else CandlestickChartUIModel.from(
+            candles = data,
+            layout = perpetualChartLayout(data.map { it.toGem() }, position?.toGem()),
+            yTickFormatter = numericString,
+            lineLabel = lineLabel,
+        )
+    }
+    val headerUIModel = remember(selectedCandle, baseCandle, lastCandle, currencyString) {
+        val target = selectedCandle ?: lastCandle ?: return@remember null
+        val base = baseCandle ?: return@remember null
+        ChartHeaderUIModel.build(
+            header = GemChartHeader(
+                value = target.close,
+                secondaryValue = null,
+                changePercentage = PriceChangeCalculator.percentage(from = base.close, to = target.close).takeIf { target.close != 0.0 },
+            ),
+            timestamp = selectedCandle?.date,
+            priceFormatter = currencyString,
+            dateFormatter = ::getRelativeDate,
+        )
+    }
+    val tooltipUIModel = remember(selectedCandle, numericString, volumeString) {
+        selectedCandle?.let { CandlestickTooltipUIModel.from(it, numericString, volumeString) }
+    }
+
+    ChartStateView(
+        state = state,
+        header = headerUIModel,
+        period = period,
+        onPeriodSelect = onPeriodSelect,
+        modifier = modifier,
+    ) { _ ->
+        if (chartUIModel != null) {
+            GemCandlestickChart(
+                model = chartUIModel,
+                selectedIndex = safeSelectedIndex,
+                onSelectionChanged = { selectedIndex = it },
+            )
+            TooltipOverlay(
+                visible = tooltipUIModel != null,
+                tooltip = tooltipUIModel,
+                alignToStart = isSelectedRightHalf,
+            )
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.TooltipOverlay(
+    visible: Boolean,
+    tooltip: CandlestickTooltipUIModel?,
+    alignToStart: Boolean,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = Modifier
+            .align(if (alignToStart) Alignment.TopStart else Alignment.TopEnd)
+            .padding(
+                start = paddingSmall,
+                end = if (alignToStart) paddingSmall else TooltipRightSafeArea,
+                top = paddingSmall,
+            ),
+    ) {
+        tooltip?.let { CandlestickTooltip(model = it) }
+    }
+}

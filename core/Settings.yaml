@@ -1,0 +1,421 @@
+dynode:
+  url: ""
+
+redis:
+  url: "redis://default:@localhost:6379?protocol=resp3"
+postgres:
+  url: "postgres://username:password@localhost/api"
+  pool: 2
+meilisearch:
+  url: "http://localhost:7700"
+  key: "test"
+rabbitmq:
+  url: "amqp://username:password@localhost:5672"
+  prefetch: 50
+  retry:
+    delay: 1s
+    timeout: 30s
+
+api:
+  service: ""
+  admin:
+    enabled: true
+  auth:
+    enabled: true
+    tolerance: 5m
+    jwt:
+      secret: ""
+      expiry: 1h
+parser:
+  timeout: 1s
+  shutdown:
+    timeout: 15s
+daemon:
+  service: ""
+  shutdown:
+    timeout: 15s
+consumer:
+  error:
+    timeout: 0s
+    skip: true
+    retries: 5
+  delay: 0s
+  shutdown:
+    timeout: 15s
+
+fiat:
+  timeout: 3s
+  moonpay:
+    url: "https://api.moonpay.com"
+    key:
+      public: ""
+      secret: ""
+    webhook:
+      key:
+        secret: ""
+  transak:
+    url: "https://api.transak.com"
+    gateway:
+      url: "https://api-gateway.transak.com"
+    key:
+      public: ""
+      secret: ""
+    referrer:
+      domain: "gemwallet.com"
+  mercuryo:
+    url: "https://api.mercuryo.io"
+    key:
+      public: ""
+      secret: ""
+    webhook:
+      key:
+        secret: ""
+  banxa:
+    api:
+      url: "https://api.banxa.com"
+    redirect:
+      url: "https://gemwallet.banxa.com"
+    partner: ""
+    key:
+      secret: ""
+    webhook:
+      key:
+        secret: ""
+  paybis:
+    url: "https://widget-api.paybis.com"
+    key:
+      public: ""
+      secret: ""
+  flashnet:
+    url: "https://orchestration.flashnet.xyz"
+    key:
+      public: "gemwallet"
+      secret: ""
+    webhook:
+      key:
+        secret: ""
+swap:
+  nearintents:
+    url: "https://1click.chaindefuser.com"
+  okx:
+    url: "https://web3.okx.com"
+    key:
+      public: ""
+      secret: ""
+    passphrase: ""
+    project: ""
+  swapsxyz:
+    url: "https://api-v2.swaps.xyz/api"
+
+prices:
+  coingecko:
+    url: "https://pro-api.coingecko.com"
+    key:
+      secret: ""
+  pyth:
+    url: "https://hermes.pyth.network"
+    key:
+      secret: ""
+  jupiter:
+    url: "https://lite-api.jup.ag"
+    key:
+      secret: ""
+  defillama:
+    url: "https://coins.llama.fi"
+    key:
+      secret: ""
+  tonapi:
+    url: "https://tonapi.io"
+    key:
+      secret: ""
+  stonfi:
+    url: "https://api.ston.fi"
+    key:
+      secret: ""
+defi:
+  jupiter:
+    url: "https://api.jup.ag"
+    key:
+      secret: ""
+  zerion:
+    url: "https://api.zerion.io"
+    key:
+      secret: ""
+coingecko:
+  url: "https://pro-api.coingecko.com"
+  key:
+    secret: ""
+coinmarketcap:
+  url: "https://pro-api.coinmarketcap.com"
+  key:
+    secret: ""
+everstake:
+  url: "https://eth-api-b2c.everstake.one"
+
+name:
+  max_name_length: 20
+  ens:
+    url: https://ethereum.publicnode.com
+  ud:
+    url: https://api.unstoppabledomains.com
+  sns:
+    url: https://sdk-proxy.sns.id
+  ton:
+    url: https://toncenter.com
+  spaceid:
+    url: https://api.prd.space.id
+  did:
+    url: https://indexer-basic.did.id
+  suins:
+    url: https://fullnode.mainnet.sui.io
+  aptos:
+    url: https://fullnode.mainnet.aptoslabs.com
+  injective:
+    url: https://injective-rest.publicnode.com
+  icns:
+    url: https://osmosis-rest.publicnode.com
+  lens:
+    url: https://api.lens.xyz/graphql
+  base:
+    url: https://mainnet.base.org
+  hyperliquid:
+    url: https://rpc.hyperliquid.xyz/evm
+  alldomains:
+    url: https://solana-rpc.publicnode.com
+  near:
+    url: https://rpc.mainnet.near.org
+
+chains:
+  solana:
+    url: https://solana-rpc.publicnode.com
+  ethereum:
+    url: https://eth-pokt.nodies.app
+  smartchain:
+    url: https://bsc-dataseed1.bnbchain.org
+  polygon:
+    url: https://rpc-mainnet.matic.quiknode.pro
+  optimism:
+    url: https://mainnet.optimism.io
+  arbitrum:
+    url: https://arb1.arbitrum.io/rpc
+  base:
+    url: https://mainnet.base.org
+  opbnb:
+    url: https://opbnb-mainnet-rpc.bnbchain.org
+  avalanchec:
+    url: https://api.avax.network/ext/bc/C/rpc
+  fantom:
+    url: https://fantom.publicnode.com
+  gnosis:
+    url: https://gnosis.publicnode.com
+  ton:
+    url: https://toncenter.com
+  cosmos:
+    url: "https://cosmos-rest.publicnode.com"
+  osmosis:
+    url: "https://osmosis-rest.publicnode.com"
+  thorchain:
+    url: "https://thornode.thorchain.liquify.com"
+  mayachain:
+    url: "https://mayanode.mayachain.info"
+  tron:
+    url: "https://api.trongrid.io"
+  xrp:
+    url: https://s1.ripple.com:51234/
+  aptos:
+    url: https://fullnode.mainnet.aptoslabs.com
+  sui:
+    url: https://fullnode.mainnet.sui.io
+  celestia:
+    url: https://celestia-api.polkachu.com
+  injective:
+    url: https://injective-rest.publicnode.com
+  sei:
+    url: https://sei-api.polkachu.com
+  seievm:
+    url: https://evm-rpc.sei-apis.com
+  manta:
+    url: https://pacific-rpc.manta.network/http
+  blast:
+    url: https://rpc.blastblockchain.com
+  noble:
+    url: https://rest.cosmos.directory/noble
+  zksync:
+    url: https://mainnet.era.zksync.io
+  linea:
+    url: https://linea.drpc.org
+  mantle:
+    url: https://rpc.mantle.xyz
+  celo:
+    url: https://forno.celo.org
+  near:
+    url: https://rpc.mainnet.fastnear.com
+  bitcoin:
+    url: https://blockbook.btc.zelcore.io
+  bitcoincash:
+    url: https://blockbook.bch.zelcore.io
+  bitcoinsv:
+    url: https://api.whatsonchain.com/v1/bsv/main
+  litecoin:
+    url: https://blockbook.ltc.zelcore.io
+  doge:
+    url: https://blockbook.doge.zelcore.io
+  zcash:
+    url: https://blockbook.zec.zelcore.io
+  world:
+    url: https://worldchain-mainnet.gateway.tenderly.co
+  plasma:
+    url: https://rpc.plasma.to
+  stellar:
+    url: https://horizon.stellar.org
+  sonic:
+    url: https://rpc.soniclabs.com
+  algorand:
+    url: https://mainnet-api.algonode.cloud
+  polkadot:
+    url: https://polkadot-relay-rest-api.parity.io
+  cardano:
+    url: ""
+  abstract:
+    url: https://api.mainnet.abs.xyz
+  berachain:
+    url: https://rpc.berachain.com
+  ink:
+    url: https://rpc-qnd.inkonchain.com
+  unichain:
+    url: https://mainnet.unichain.org
+  hyperliquid:
+    url: https://rpc.hyperliquid.xyz/evm
+  hypercore:
+    url: https://api.hyperliquid.xyz
+  monad:
+    url: https://rpc.monad.xyz
+  xlayer:
+    url: https://rpc.xlayer.tech
+  robinhood:
+    url: https://rpc.mainnet.chain.robinhood.com
+  stable:
+    url: https://rpc.stable.xyz
+  tempo:
+    url: https://rpc.tempo.xyz
+
+pusher:
+  url: "http://localhost:8088"
+  ios:
+    topic: ""
+security:
+  abuseipdb:
+    url: https://api.abuseipdb.com
+    key:
+      secret: ""
+  goplus:
+    url: "https://api.gopluslabs.io"
+    key:
+      public: ""
+      secret: ""
+  hashdit:
+    url: "https://service.hashdit.io"
+    key:
+      secret: ""
+  jupiter:
+    url: "https://api.jup.ag"
+    key:
+      secret: ""
+  ipapi:
+    url: https://api.ipapi.is
+    key:
+      secret: ""
+  tronscan:
+    url: "https://apilist.tronscanapi.com"
+    key:
+      secret: ""
+
+support:
+  url: ""
+  widget:
+    ios: ""
+    android: ""
+  webhook:
+    key:
+      secret: ""
+  types:
+    images:
+      - jpeg
+      - jpg
+      - png
+
+nft:
+  url: "https://assets.gemwallet.com/nft"
+  alchemy:
+    url: "https://{network}.g.alchemy.com"
+    key:
+      secret: ""
+  magiceden:
+    url: "https://api-mainnet.magiceden.dev"
+    key:
+      secret: ""
+  opensea:
+    url: "https://api.opensea.io"
+    key:
+      secret: ""
+  ton:
+    url: "https://toncenter.com"
+    key:
+      secret: ""
+  offchain:
+    timeout: 5
+    concurrency: 8
+    limit: 1048576
+
+indexer:
+  alchemy:
+    url: "https://{network}.g.alchemy.com"
+    key:
+      secret: ""
+  algorand:
+    url: "https://mainnet-idx.algonode.cloud"
+    key:
+      secret: ""
+  ankr:
+    url: "https://rpc.ankr.com/multichain"
+    key:
+      secret: ""
+  blockscout:
+    url: "https://api.blockscout.com"
+    key:
+      secret: ""
+  fastnear:
+    neardata:
+      url: "https://mainnet.neardata.xyz"
+      key:
+        secret: ""
+    transfers:
+      url: "https://transfers.main.fastnear.com"
+      key:
+        secret: ""
+    tx:
+      url: "https://tx.main.fastnear.com"
+      key:
+        secret: ""
+  subscan:
+    url: "https://assethub-polkadot.api.subscan.io"
+    key:
+      secret: ""
+  sui:
+    url: "https://graphql.mainnet.sui.io"
+    key:
+      secret: ""
+  ton:
+    url: "https://toncenter.com"
+    key:
+      secret: ""
+  trongrid:
+    url: "https://api.trongrid.io"
+    key:
+      secret: ""
+
+assets:
+  url: "https://raw.githubusercontent.com/gemwalletcom/assets/refs/heads/master"
+
+rewards:
+  wallets: {}

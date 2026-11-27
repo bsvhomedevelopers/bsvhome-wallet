@@ -1,0 +1,38 @@
+[package]
+name = "settings_chain"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+url = { workspace = true }
+futures = { workspace = true }
+reqwest = { workspace = true }
+
+primitives = { path = "../primitives" }
+chain_traits = { path = "../chain_traits" }
+settings = { path = "../settings" }
+bsv_home_client = { path = "../bsv_home_client", features = ["reqwest"] }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["client"] }
+bsv_home_tracing = { path = "../tracing" }
+bsv_home_alchemy = { path = "../bsv_home_alchemy" }
+
+bsv_home_algorand = { path = "../bsv_home_algorand", features = ["rpc", "reqwest"] }
+bsv_home_aptos = { path = "../bsv_home_aptos", features = ["rpc", "reqwest"] }
+bsv_home_bsv = { path = "../bsv_home_bsv", features = ["rpc", "reqwest"] }
+bsv_home_bitcoin = { path = "../bsv_home_bitcoin", features = ["rpc", "reqwest"] }
+bsv_home_cardano = { path = "../bsv_home_cardano", features = ["rpc", "reqwest"] }
+bsv_home_cosmos = { path = "../bsv_home_cosmos", features = ["rpc", "reqwest"] }
+bsv_home_tempo = { path = "../bsv_home_tempo", features = ["rpc"] }
+bsv_home_evm = { path = "../bsv_home_evm", features = ["indexer", "reqwest"] }
+bsv_home_everstake = { path = "../bsv_home_everstake", features = ["rpc", "reqwest"] }
+bsv_home_monad = { path = "../bsv_home_monad", features = ["rpc", "reqwest"] }
+bsv_home_bsc = { path = "../bsv_home_bsc", features = ["rpc", "reqwest"] }
+bsv_home_hypercore = { path = "../bsv_home_hypercore", features = ["reqwest"] }
+bsv_home_near = { path = "../bsv_home_near", features = ["rpc", "reqwest"] }
+bsv_home_polkadot = { path = "../bsv_home_polkadot", features = ["rpc", "reqwest"] }
+bsv_home_solana = { path = "../bsv_home_solana", features = ["rpc", "reqwest"] }
+bsv_home_stellar = { path = "../bsv_home_stellar", features = ["rpc", "reqwest"] }
+bsv_home_sui = { path = "../bsv_home_sui", features = ["rpc", "reqwest"] }
+bsv_home_ton = { path = "../bsv_home_ton", features = ["rpc", "reqwest"] }
+bsv_home_tron = { path = "../bsv_home_tron", features = ["rpc", "reqwest"] }
+bsv_home_xrp = { path = "../bsv_home_xrp", features = ["rpc", "reqwest"] }

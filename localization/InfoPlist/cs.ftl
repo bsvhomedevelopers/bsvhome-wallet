@@ -1,0 +1,6 @@
+# Permissions
+
+NSCameraUsageDescription = BsvHome potřebuje přístup k vašemu fotoaparátu, aby mohl skenovat QR kódy.
+NSPhotoLibraryAddUsageDescription = Tato aplikace vyžaduje přístup k vaší knihovně fotografií pro ukládání NFT souborů.
+NSFaceIDUsageDescription = Povolení Face ID pomáhá BsvHome chránit vaše aktiva.
+NSPhotoLibraryUsageDescription = Abychom vám umožnili vybrat fotografie, potřebujeme přístup k vaší fotogalerii.

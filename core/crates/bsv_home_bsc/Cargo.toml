@@ -1,0 +1,27 @@
+[package]
+name = "bsv_home_bsc"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+default = []
+rpc = ["bsv_home_evm/rpc", "dep:async-trait", "dep:bsv_home_client"]
+reqwest = ["rpc", "bsv_home_evm/reqwest", "bsv_home_client/reqwest"]
+chain_integration_tests = ["rpc", "reqwest", "primitives/testkit", "settings/testkit"]
+
+[dependencies]
+primitives = { path = "../primitives" }
+bsv_home_evm = { path = "../bsv_home_evm" }
+
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+async-trait = { workspace = true, optional = true }
+chrono = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+num-bigint = { workspace = true }
+
+[dev-dependencies]
+bsv_home_evm = { path = "../bsv_home_evm", features = ["rpc", "testkit"] }
+primitives = { path = "../primitives", features = ["testkit"] }
+settings = { path = "../settings", features = ["testkit"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

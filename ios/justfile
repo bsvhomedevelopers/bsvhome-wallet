@@ -1,0 +1,209 @@
+XCBEAUTIFY_ARGS := "--quieter --is-ci"
+BUILD_THREADS := `getconf _NPROCESSORS_ONLN`
+SIMULATOR_NAME := env("SIMULATOR_NAME", "iPhone 17")
+SIMULATOR_DEST := "platform=iOS Simulator,name=" + SIMULATOR_NAME
+XCODE_CONFIGURATION := env("CONFIGURATION", "Debug")
+BSV_HOME_CORE_IOS_PROFILE := if XCODE_CONFIGURATION == "Release" { "release" } else { "debug" }
+DERIVED_DATA := "build/DerivedData"
+SPM_CACHE := "build/SourcePackages"
+FAST_BUILD_FLAGS := "GCC_OPTIMIZATION_LEVEL=0 SWIFT_OPTIMIZATION_LEVEL=-Onone SWIFT_COMPILATION_MODE=incremental ENABLE_TESTABILITY=NO"
+MPC_LINKER_FLAGS := '"OTHER_LDFLAGS=\$(inherited) $PWD/../core/target/aarch64-apple-ios-sim/' + BSV_HOME_CORE_IOS_PROFILE + '/libbsv_home_core.a $PWD/Packages/WowPayMpc/Native/target/aarch64-apple-ios-sim/' + BSV_HOME_CORE_IOS_PROFILE + '/libwowpay_mpc_ios.a"'
+
+default:
+    @just --list
+
+bootstrap: install generate-core
+    @echo "<== Bootstrap done."
+
+install: install-rust install-typeshare install-toolchains install-swifttools
+
+install-rust:
+    @cd ../core && just install-rust
+
+install-typeshare:
+    @echo "==> Install typeshare-cli"
+    @cd ../core && just install-typeshare
+
+install-toolchains:
+    @echo "==> Install toolchains for uniffi"
+    @cd ../core && just bsv-home-core install-ios-targets
+
+install-swifttools:
+    @echo "==> Install SwiftFormat"
+    @brew install swiftformat
+
+setup-git:
+    @echo "==> Setup git submodules"
+    @git submodule update --init --recursive
+    @git config submodule.recurse true
+
+spm-resolve:
+    @xcodebuild -resolvePackageDependencies -project BsvHome.xcodeproj -scheme BsvHome -derivedDataPath {{DERIVED_DATA}} -clonedSourcePackagesDirPath {{SPM_CACHE}}
+
+spm-resolve-all:
+    @sh scripts/spm-resolve-all.sh
+
+lint:
+    @echo "==> Running SwiftLint"
+    @git ls-files -z '*.swift' | xargs -0 swiftlint lint --fix --config .swiftlint.yml --quiet --force-exclude
+
+format:
+    @echo "==> Running SwiftFormat"
+    @git ls-files -z '*.swift' | xargs -0 swiftformat --config .swiftformat --quiet
+
+_build action extra_flags="":
+    @set -o pipefail && xcodebuild -project BsvHome.xcodeproj \
+    -scheme BsvHome \
+    -configuration "{{XCODE_CONFIGURATION}}" \
+    ONLY_ACTIVE_ARCH=YES \
+    -destination "{{SIMULATOR_DEST}}" \
+    -derivedDataPath {{DERIVED_DATA}} \
+    -clonedSourcePackagesDirPath {{SPM_CACHE}} \
+    -parallelizeTargets \
+    -jobs {{BUILD_THREADS}} \
+    -showBuildTimingSummary \
+    {{ extra_flags }} \
+    {{ action }} | xcbeautify {{ XCBEAUTIFY_ARGS }}
+
+# Example: just build
+build: generate-mpc (_build "build" FAST_BUILD_FLAGS)
+
+clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf build .build
+    while IFS= read -r -d '' manifest; do
+        package_directory="${manifest%/Package.swift}"
+        rm -rf "$package_directory/build" "$package_directory/.build"
+    done < <(find . -name Package.swift -print0)
+    echo "iOS build folders cleaned"
+
+run: build
+    @echo "==> Installing app on simulator..."
+    @xcrun simctl boot "{{SIMULATOR_NAME}}" 2>/dev/null || true
+    @xcrun simctl bootstatus "{{SIMULATOR_NAME}}" -b
+    @open -a Simulator
+    @xcrun simctl install "{{SIMULATOR_NAME}}" {{DERIVED_DATA}}/Build/Products/Debug-iphonesimulator/BsvHome.app
+    @echo "==> Launching app..."
+    @xcrun simctl launch --console-pty "{{SIMULATOR_NAME}}" com.bsvhome.ios
+
+# Example: just build-package Primitives
+build-package PACKAGE:
+    @set -o pipefail && xcodebuild -project BsvHome.xcodeproj \
+    -scheme {{PACKAGE}} \
+    ONLY_ACTIVE_ARCH=YES \
+    -destination "{{SIMULATOR_DEST}}" \
+    -derivedDataPath {{DERIVED_DATA}} \
+    -clonedSourcePackagesDirPath {{SPM_CACHE}} \
+    -parallelizeTargets \
+    -jobs {{BUILD_THREADS}} \
+    GCC_OPTIMIZATION_LEVEL=0 \
+    SWIFT_OPTIMIZATION_LEVEL=-Onone \
+    build | xcbeautify {{XCBEAUTIFY_ARGS}}
+
+archive-release: clean (generate-mpc "release")
+    @set -o pipefail && xcodebuild -project BsvHome.xcodeproj \
+    -scheme BsvHome \
+    -configuration Release \
+    -sdk iphoneos \
+    -destination "generic/platform=iOS" \
+    -derivedDataPath {{DERIVED_DATA}} \
+    -clonedSourcePackagesDirPath {{SPM_CACHE}} \
+    -archivePath {{DERIVED_DATA}}/BsvHome.xcarchive \
+    -jobs {{BUILD_THREADS}} \
+    CODE_SIGNING_ALLOWED=NO \
+    archive | xcbeautify {{XCBEAUTIFY_ARGS}}
+
+show-simulator:
+    @echo "Destination: {{SIMULATOR_DEST}}"
+    @xcrun simctl list devices | grep "iPhone" | head -5 || true
+
+_test action target="" parallel_testing="YES" scheme="BsvHome":
+    @set -o pipefail && xcodebuild -project BsvHome.xcodeproj \
+    -scheme {{scheme}} \
+    -configuration "{{XCODE_CONFIGURATION}}" \
+    ONLY_ACTIVE_ARCH=YES \
+    -destination "{{SIMULATOR_DEST}}" \
+    -derivedDataPath {{DERIVED_DATA}} \
+    -clonedSourcePackagesDirPath {{SPM_CACHE}} \
+    {{ if target != "" { "-only-testing " + target } else { "" } }} \
+    -parallel-testing-enabled {{ parallel_testing }} \
+    -parallelizeTargets \
+    -jobs {{ BUILD_THREADS }} \
+    {{ MPC_LINKER_FLAGS }} \
+    {{ action }} | xcbeautify {{ XCBEAUTIFY_ARGS }}
+
+test-without-building TARGET="":
+    @python3 scripts/test-unit.py test-without-building {{quote(TARGET)}}
+
+# Example: just test
+# Example: just test PrimitivesTests
+test TARGET="": generate-mpc
+    @python3 scripts/test-unit.py test {{quote(TARGET)}}
+
+build-for-testing TARGET="": generate-mpc
+    @python3 scripts/test-unit.py build-for-testing {{quote(TARGET)}}
+
+test-cold-wallet: (test "BsvColdWalletTests")
+
+test-qr-scanner: (test "QRScannerTests")
+
+test-cold-wallet-storage: (test "BsvHomeCoreServicesTests/BsvColdWalletStoreTests")
+
+test-offline-provider: (test "BsvHomeCoreServicesTests/OfflineProviderTests")
+
+test-cold-wallet-protection: (test "BsvHomeCoreServicesTests/WalletFileProtectionTests")
+
+test-all: test
+
+_test-integration action:
+    @set -o pipefail && xcodebuild -project BsvHome.xcodeproj \
+    -scheme BsvHomeUITests \
+    -configuration "{{XCODE_CONFIGURATION}}" \
+    -testPlan ui_tests \
+    ONLY_ACTIVE_ARCH=YES \
+    -destination "{{SIMULATOR_DEST}}" \
+    -derivedDataPath {{DERIVED_DATA}} \
+    -clonedSourcePackagesDirPath {{SPM_CACHE}} \
+    -allowProvisioningUpdates \
+    -allowProvisioningDeviceRegistration \
+    {{ MPC_LINKER_FLAGS }} \
+    {{action}} | xcbeautify {{XCBEAUTIFY_ARGS}}
+
+test-integration: reset-simulator (_test-integration "test")
+
+test-ui: reset-simulator (_test-integration "test")
+
+build-for-testing-integration: (_test-integration "build-for-testing")
+
+test-integration-without-building: reset-simulator (_test-integration "test-without-building")
+
+# Run full upgrade test: build old version, create wallet, build current, verify wallet survives
+test-upgrade COMMIT:
+    @bash ./scripts/upgrade-test.sh {{COMMIT}}
+
+reset-simulator NAME=SIMULATOR_NAME:
+    @echo "==> Resetting {{NAME}} simulator to clean state"
+    @xcrun simctl shutdown "{{NAME}}" 2>/dev/null || true
+    @xcrun simctl erase "{{NAME}}" 2>/dev/null || true
+    @xcrun simctl boot "{{NAME}}" 2>/dev/null || true
+
+localize:
+    @cd ../core && cargo run --package generate --bin generate localize ios ../localization/app ../ios/Packages/Localization/Sources
+    @cd ../core && cargo run --package generate --bin generate localize ios-plist ../localization/InfoPlist ../ios/Packages/Localization/Sources/Resources
+    @cd ../core && cargo run --package generate --bin generate localize ios-widget ../localization/widget ../ios/Packages/Localization/WidgetSources
+
+generate: generate-models
+
+generate-models:
+    @echo "==> Generate typeshare for iOS"
+    @cd ../core && cargo run --package generate --bin generate ios ../ios/Packages
+
+generate-core BUILD_MODE="":
+    @./scripts/generate-core.sh --force {{BUILD_MODE}}
+
+bump TARGET="patch":
+    @cd .. && just bump {{TARGET}}
+
+generate-mpc PROFILE=BSV_HOME_CORE_IOS_PROFILE:
+    @bash scripts/generate-mpc.sh {{PROFILE}}

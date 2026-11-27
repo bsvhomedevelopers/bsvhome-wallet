@@ -1,0 +1,44 @@
+use async_trait::async_trait;
+use std::fmt::{self, Debug};
+
+use super::{AlienError, Target};
+use bsv_home_jsonrpc::RpcResponse;
+use bsv_home_jsonrpc::rpc::RpcProvider as GenericRpcProvider;
+use primitives::Chain;
+
+pub struct MockFn(pub Box<dyn Fn(Target) -> String + Send + Sync>);
+
+impl fmt::Debug for MockFn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("MockFn").finish()
+    }
+}
+
+#[derive(Debug)]
+pub struct ProviderMock {
+    pub response: MockFn,
+}
+
+impl ProviderMock {
+    pub fn new(string: String) -> Self {
+        Self {
+            response: MockFn(Box::new(move |_| string.clone())),
+        }
+    }
+}
+
+#[async_trait]
+impl GenericRpcProvider for ProviderMock {
+    type Error = AlienError;
+
+    async fn request(&self, target: Target) -> Result<RpcResponse, Self::Error> {
+        Ok(RpcResponse {
+            status: Some(200),
+            data: (self.response.0)(target).into_bytes(),
+        })
+    }
+
+    fn get_endpoint(&self, _chain: Chain) -> Result<String, Self::Error> {
+        Ok(String::from("http://localhost:8080"))
+    }
+}

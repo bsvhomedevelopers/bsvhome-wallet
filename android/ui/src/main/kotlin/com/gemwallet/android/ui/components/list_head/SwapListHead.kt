@@ -1,0 +1,137 @@
+package com.gemwallet.android.ui.components.list_head
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import com.gemwallet.android.model.AssetPriceValue
+import com.gemwallet.android.model.Crypto
+import com.gemwallet.android.model.CryptoFiatConverter
+import com.gemwallet.android.model.ValueFormatter
+import com.gemwallet.android.ui.components.list_item.ListItemDefaults
+import com.gemwallet.android.ui.components.list_item.listItem
+import com.gemwallet.android.ui.icons.AppIcons
+import com.gemwallet.android.ui.models.ListPosition
+import com.gemwallet.android.ui.theme.Spacer16
+import com.gemwallet.android.ui.theme.compactIconSize
+import com.gemwallet.android.ui.theme.listItemIconSize
+import com.gemwallet.android.ui.theme.paddingDefault
+import com.wallet.core.primitives.AssetId
+import com.wallet.core.primitives.Currency
+import java.math.BigInteger
+
+@Composable
+fun SwapListHead(
+    fromAsset: AssetPriceValue?,
+    fromValue: BigInteger,
+    toAsset: AssetPriceValue?,
+    toValue: BigInteger,
+    currency: Currency? = null,
+    onSwapClick: (() -> Unit)? = null,
+    onAssetClick: ((AssetId) -> Unit)? = null,
+) {
+    if (fromAsset == null || toAsset == null) {
+        return
+    }
+    Column {
+        Column(
+            modifier = Modifier
+                .listItem(ListPosition.Single)
+                .fillMaxWidth()
+                .padding(horizontal = ListItemDefaults.contentSpacing, vertical = paddingDefault),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            SwapItem(
+                assetInfo = fromAsset,
+                value = fromValue,
+                currency = currency,
+                onSwapClick = onSwapClick,
+                onAssetClick = onAssetClick,
+            )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Icon(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(compactIconSize),
+                    imageVector = AppIcons.ArrowDownward,
+                    contentDescription = null
+                )
+            }
+            Spacer16()
+            SwapItem(
+                assetInfo = toAsset,
+                value = toValue,
+                currency = currency,
+                onSwapClick = onSwapClick,
+                onAssetClick = onAssetClick,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SwapItem(
+    assetInfo: AssetPriceValue,
+    value: BigInteger,
+    currency: Currency?,
+    onSwapClick: (() -> Unit)?,
+    onAssetClick: ((AssetId) -> Unit)?,
+) {
+    val asset = assetInfo.asset
+    val decimals = asset.decimals
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .then(
+                    if (onSwapClick != null) {
+                        Modifier.clickable { onSwapClick() }
+                    } else {
+                        Modifier
+                    }
+                ),
+        ) {
+            Text(
+                text = ValueFormatter(style = ValueFormatter.Style.Auto).string(value, asset),
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontSize = 24.sp,
+                    lineHeight = 32.sp,
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Start
+            )
+            val price = assetInfo.price?.price?.price
+            if (currency != null && price != null) {
+                Text(
+                    text = CryptoFiatConverter.toFiatString(Crypto(value), decimals, price, currency),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    textAlign = TextAlign.Start
+                )
+            }
+        }
+        Box(
+            modifier = if (onAssetClick != null) {
+                Modifier.clickable { onAssetClick(asset.id) }
+            } else {
+                Modifier
+            },
+        ) {
+            HeaderIcon(asset, listItemIconSize)
+        }
+    }
+}

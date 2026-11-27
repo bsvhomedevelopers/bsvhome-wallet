@@ -1,0 +1,12 @@
+[package]
+name = "cacher"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+bsv_home_tracing = { path = "../tracing" }
+primitives = { path = "../primitives" }
+redis = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }

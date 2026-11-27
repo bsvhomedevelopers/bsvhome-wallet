@@ -1,0 +1,12 @@
+use serde::{Deserialize, Serialize};
+
+use crate::Chain;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "type", content = "content")]
+pub enum SwapProviderMode {
+    OnChain,
+    CrossChain,
+    Bridge,
+    OmniChain(Vec<Chain>), // supports both on-chain and cross-chain. Specify the chain for on-chain swaps
+}

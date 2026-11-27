@@ -1,0 +1,74 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import BigInt
+@testable import Formatters
+import Foundation
+import Testing
+
+final class BigNumberFormatterTests {
+    let formatter = BigNumberFormatter.standard
+
+    @Test
+    func fromString() {
+        #expect(throws: Never.self) {
+            let result = try self.formatter.number(from: "0.00012317", decimals: 8)
+            #expect(result == 12317)
+        }
+    }
+
+    @Test
+    func fromNumber() {
+        #expect(formatter.number(from: 100_000, decimals: 7) == 1_000_000_000_000)
+        #expect(formatter.number(from: 10, decimals: 0) == 10)
+    }
+
+    @Test
+    func fromNumberEULocalization() {
+        let formatter = BigNumberFormatter(locale: Locale.RU_UA)
+        #expect(throws: Never.self) {
+            let result = try formatter.number(from: "0,12317", decimals: 8)
+            #expect(result == 12_317_000)
+        }
+    }
+
+    @Test
+    func exactFromString() throws {
+        let exact = try formatter.exactNumber(from: "0.00012317", decimals: 8)
+        #expect(exact == 12317)
+
+        let trailingZeros = try formatter.exactNumber(from: "1.000000000", decimals: 8)
+        #expect(trailingZeros == 100_000_000)
+
+        #expect(throws: (any Error).self) {
+            try self.formatter.exactNumber(from: "0.000000001", decimals: 8)
+        }
+        #expect(throws: (any Error).self) {
+            try self.formatter.exactNumber(from: "0.123456789", decimals: 8)
+        }
+
+        let truncated = try formatter.number(from: "0.123456789", decimals: 8)
+        #expect(truncated == 12_345_678)
+    }
+
+    @Test
+    func fromBigInt() {
+        #expect(formatter.string(from: BigInt(10000), decimals: 2) == "100")
+    }
+
+    @Test
+    func negativeSubunitKeepsSign() {
+        #expect(formatter.string(from: -5, decimals: 1) == "-0.5")
+        #expect(formatter.decimal(from: -5, decimals: 1) == Decimal(string: "-0.5"))
+    }
+
+    @Test
+    func exactFractionalDigits() {
+        let formatter = BigNumberFormatter(locale: .US, minimumFractionDigits: 4)
+
+        #expect(formatter.string(from: 0, decimals: 0) == "0.0000")
+        #expect(formatter.string(from: 1, decimals: 0) == "1.0000")
+        #expect(formatter.string(from: 123, decimals: 2) == "1.2300")
+        #expect(formatter.string(from: 123_456, decimals: 5) == "1.23456")
+        #expect(formatter.string(from: -5, decimals: 1) == "-0.5000")
+    }
+}

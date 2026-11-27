@@ -1,0 +1,125 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import GRDB
+import Primitives
+
+public struct StakeStore: Sendable {
+    let db: DatabaseQueue
+
+    public init(db: DB) {
+        self.db = db.dbQueue
+    }
+
+    public func getStakeApr(assetId: AssetId) throws -> Double? {
+        try db.read { db in
+            try AssetRecord
+                .filter(key: assetId.identifier)
+                .fetchOne(db)
+                .map(\.stakingApr) ?? .none
+        }
+    }
+
+    public func getEarnApr(assetId: AssetId) throws -> Double? {
+        try db.read { db in
+            try AssetRecord
+                .filter(key: assetId.identifier)
+                .fetchOne(db)
+                .map(\.earnApr) ?? .none
+        }
+    }
+
+    public func updateDelegations(walletId: WalletId, delegations: [DelegationBase]) throws {
+        try db.write { db in
+            for delegation in delegations {
+                try delegation.record(walletId: walletId.id).upsert(db)
+            }
+        }
+    }
+
+    public func updateAndDelete(walletId: WalletId, delegations: [DelegationBase], deleteIds: [String]) throws {
+        try db.write { db in
+            for delegation in delegations {
+                try delegation.record(walletId: walletId.id).upsert(db)
+            }
+
+            try StakeDelegationRecord
+                .filter(StakeDelegationRecord.Columns.walletId == walletId.id)
+                .filter(deleteIds.contains(StakeDelegationRecord.Columns.id))
+                .deleteAll(db)
+        }
+    }
+
+    public func getValidatorsActive(assetId: AssetId, providerType: StakeProviderType) throws -> [DelegationValidator] {
+        try db.read { db in
+            try StakeValidatorRecord
+                .filter(StakeValidatorRecord.Columns.assetId == assetId.identifier)
+                .filter(StakeValidatorRecord.Columns.providerType == providerType.rawValue)
+                .filter(StakeValidatorRecord.Columns.isActive == true)
+                .order(StakeValidatorRecord.Columns.apr.desc)
+                .fetchAll(db)
+                .map(\.validator)
+        }
+    }
+
+    public func getValidators(assetId: AssetId, providerType: StakeProviderType) throws -> [DelegationValidator] {
+        try db.read { db in
+            try StakeValidatorRecord
+                .filter(StakeValidatorRecord.Columns.assetId == assetId.identifier)
+                .filter(StakeValidatorRecord.Columns.providerType == providerType.rawValue)
+                .order(StakeValidatorRecord.Columns.apr.desc)
+                .fetchAll(db)
+                .map(\.validator)
+        }
+    }
+
+    public func updateValidators(_ validators: [DelegationValidator]) throws {
+        try db.write { db in
+            for validator in validators {
+                try validator.record.upsert(db)
+            }
+        }
+    }
+
+    @discardableResult
+    public func deactivateValidators(assetId: AssetId, validatorIds: [String]) throws -> Int {
+        if validatorIds.isEmpty {
+            return 0
+        }
+        return try db.write { db in
+            try StakeValidatorRecord
+                .filter(StakeValidatorRecord.Columns.assetId == assetId.identifier)
+                .filter(validatorIds.contains(StakeValidatorRecord.Columns.validatorId))
+                .updateAll(
+                    db,
+                    StakeValidatorRecord.Columns.isActive.set(to: false),
+                    StakeValidatorRecord.Columns.apr.set(to: 0),
+                )
+        }
+    }
+
+    public func getDelegations(walletId: WalletId, assetId: AssetId, providerType: StakeProviderType) throws -> [Delegation] {
+        try db.read { db in
+            try DelegationsRequest(walletId: walletId, assetId: assetId, providerType: providerType).fetch(db)
+        }
+    }
+
+    @discardableResult
+    public func clearDelegations() throws -> Int {
+        try db.write { db in
+            try StakeDelegationRecord.deleteAll(db)
+        }
+    }
+
+    @discardableResult
+    public func clearValidators() throws -> Int {
+        try db.write { db in
+            try StakeValidatorRecord.deleteAll(db)
+        }
+    }
+
+    public func clear() throws {
+        try clearDelegations()
+        try clearValidators()
+    }
+}

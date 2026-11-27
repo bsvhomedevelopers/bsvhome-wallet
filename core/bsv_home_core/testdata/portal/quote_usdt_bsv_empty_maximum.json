@@ -1,0 +1,18 @@
+{
+  "quoteId": "Q-usdt-bsv-test",
+  "fromChain": "TRON",
+  "fromKind": "TOKEN",
+  "fromContract": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+  "toChain": "BSV",
+  "toKind": "NATIVE",
+  "toContract": "",
+  "fromAmount": "20000000",
+  "estimatedToAmount": "72258550",
+  "minFromAmount": "12028945",
+  "maxFromAmount": "",
+  "providerCode": "CHANGENOW",
+  "providerDisplayName": "ChangeNOW",
+  "floatingRate": true,
+  "expiresAt": "2026-09-27T09:13:00Z",
+  "quoteNature": "ESTIMATED"
+}

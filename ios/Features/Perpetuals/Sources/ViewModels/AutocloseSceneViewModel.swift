@@ -1,0 +1,237 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Formatters
+import Foundation
+import struct BsvHomeCore.BsvHomeAutocloseModify
+import struct BsvHomeCore.BsvHomeAutocloseField
+import BsvHomeCorePrimitives
+import Localization
+import Primitives
+import PrimitivesComponents
+import Style
+import SwiftUI
+import class BsvHomeCore.BsvHomeAutocloseEstimator
+
+@Observable
+@MainActor
+public final class AutocloseSceneViewModel {
+    private let currencyFormatter: CurrencyFormatter
+    private let percentFormatter = PercentFormatter.signed
+    private let perpetualFormatter = PerpetualFormatter(provider: .hypercore)
+    private let type: AutocloseType
+    private let estimator: BsvHomeAutocloseEstimator
+
+    var input: AutocloseInput
+
+    private static func estimator(for type: AutocloseType) -> BsvHomeAutocloseEstimator {
+        switch type {
+        case let .modify(position, _):
+            BsvHomeAutocloseEstimator(
+                entryPrice: position.position.entryPrice,
+                positionSize: position.position.size,
+                direction: position.position.direction.map(),
+                leverage: position.position.leverage,
+            )
+        case let .open(data, _):
+            BsvHomeAutocloseEstimator.forOpen(
+                marketPrice: data.marketPrice,
+                size: data.size,
+                leverage: data.leverage,
+                direction: data.direction.map(),
+            )
+        }
+    }
+
+    public init(type: AutocloseType, currencyFormatter: CurrencyFormatter = .usd) {
+        self.type = type
+        self.currencyFormatter = currencyFormatter
+        estimator = Self.estimator(for: type)
+
+        input = AutocloseInput(
+            type: type,
+            takeProfitText: Self.initialText(for: .takeProfit, type: type),
+            stopLossText: Self.initialText(for: .stopLoss, type: type),
+        )
+    }
+
+    public var title: String {
+        Localized.Perpetual.autoClose
+    }
+
+    public var marketPriceField: ListItemField {
+        ListItemField(title: Localized.Perpetual.marketPrice, value: currencyFormatter.string(marketPrice))
+    }
+
+    public var takeProfitModel: AutocloseViewModel {
+        autocloseModel(type: .takeProfit, price: takeProfitPrice)
+    }
+
+    public var stopLossModel: AutocloseViewModel {
+        autocloseModel(type: .stopLoss, price: stopLossPrice)
+    }
+
+    public var positionItemViewModel: any ListAssetItemViewable {
+        switch type {
+        case let .modify(position, _): PerpetualPositionItemViewModel(model: PerpetualPositionViewModel(position))
+        case let .open(data, _): OpenPositionItemViewModel(data: data)
+        }
+    }
+
+    public var entryPriceField: ListItemField? {
+        switch type {
+        case let .modify(position, _):
+            ListItemField(title: Localized.Perpetual.entryPrice, value: currencyFormatter.string(position.position.entryPrice))
+        case .open: nil
+        }
+    }
+
+    public var confirmButtonType: ButtonType {
+        .primary(modify.canBuild() ? .normal : .disabled)
+    }
+}
+
+// MARK: - Actions
+
+public extension AutocloseSceneViewModel {
+    func isEditing(field: AutocloseScene.Field?) -> Bool {
+        guard let field else { return false }
+        return input.text(for: field).isEmpty
+    }
+
+    func onChangeFocusField(_ _: AutocloseScene.Field?, _ newField: AutocloseScene.Field?) {
+        input.focusField = newField
+    }
+
+    func onSelectConfirm() {
+        input.update()
+
+        let modify = modify
+        guard modify.canBuild() else { return }
+
+        switch type {
+        case let .modify(position, onTransferAction):
+            onTransferAction?(modify.transfer(provider: position.perpetual.provider.map(), asset: position.asset.map()))
+
+        case let .open(_, onComplete):
+            onComplete(input.selection)
+        }
+    }
+
+    func onSelectPercent(_ percent: Int) {
+        guard let type = input.focusedType, let focused = input.focused else { return }
+        focused.text = perpetualFormatter.formatInputPrice(
+            estimator.targetPriceFromRoe(roePercent: Int32(percent), triggerType: type.map()),
+            decimals: assetDecimals,
+        )
+    }
+}
+
+// MARK: - Private
+
+extension AutocloseSceneViewModel {
+    private var takeProfitPrice: Double? {
+        NumericFormatter().double(from: input.takeProfit.text)
+    }
+
+    private var stopLossPrice: Double? {
+        NumericFormatter().double(from: input.stopLoss.text)
+    }
+
+    private var position: PerpetualPositionData? {
+        guard case let .modify(position, _) = type else { return nil }
+        return position
+    }
+
+    private var marketPrice: Double {
+        switch type {
+        case let .modify(position, _): position.perpetual.price
+        case let .open(data, _): data.marketPrice
+        }
+    }
+
+    private var assetDecimals: Int32 {
+        switch type {
+        case let .modify(position, _): position.asset.decimals
+        case let .open(data, _): data.assetDecimals
+        }
+    }
+
+    private var modify: BsvHomeAutocloseModify {
+        BsvHomeAutocloseModify(
+            direction: type.direction.map(),
+            assetIndex: assetIndex,
+            takeProfit: takeProfitField,
+            stopLoss: stopLossField,
+        )
+    }
+
+    private var assetIndex: Int32 {
+        switch type {
+        case let .modify(position, _): Int32(position.perpetual.identifier) ?? 0
+        case .open: 0
+        }
+    }
+
+    private var takeProfitField: BsvHomeAutocloseField {
+        let price: Double? = switch type {
+        case let .modify(position, _): position.position.takeProfit?.price
+        case let .open(data, _): data.takeProfit.flatMap { NumericFormatter().double(from: $0) }
+        }
+        return input.field(
+            type: .takeProfit,
+            price: takeProfitPrice,
+            originalPrice: price,
+            formattedPrice: takeProfitPrice.map { formatPrice($0) },
+            orderId: takeProfitOrderId,
+        )
+    }
+
+    private var stopLossField: BsvHomeAutocloseField {
+        let price: Double? = switch type {
+        case let .modify(position, _): position.position.stopLoss?.price
+        case let .open(data, _): data.stopLoss.flatMap { NumericFormatter().double(from: $0) }
+        }
+        return input.field(
+            type: .stopLoss,
+            price: stopLossPrice,
+            originalPrice: price,
+            formattedPrice: stopLossPrice.map { formatPrice($0) },
+            orderId: stopLossOrderId,
+        )
+    }
+
+    private func autocloseModel(type: TpslType, price: Double?) -> AutocloseViewModel {
+        AutocloseViewModel(
+            type: type,
+            price: price,
+            estimator: estimator,
+            currencyFormatter: currencyFormatter,
+            percentFormatter: percentFormatter,
+        )
+    }
+
+    private var takeProfitOrderId: UInt64? {
+        guard let orderId = position?.position.takeProfit?.order_id else { return nil }
+        return UInt64(orderId)
+    }
+
+    private var stopLossOrderId: UInt64? {
+        guard let orderId = position?.position.stopLoss?.order_id else { return nil }
+        return UInt64(orderId)
+    }
+
+    private func formatPrice(_ price: Double) -> String {
+        perpetualFormatter.formatPrice(price, decimals: assetDecimals)
+    }
+
+    private static func initialText(for tpslType: TpslType, type: AutocloseType) -> String? {
+        switch type {
+        case let .modify(position, _):
+            let tpsl = tpslType == .takeProfit ? position.position.takeProfit : position.position.stopLoss
+            return tpsl.map { PerpetualFormatter(provider: .hypercore).formatInputPrice($0.price, decimals: position.asset.decimals) }
+        case let .open(data, _):
+            return tpslType == .takeProfit ? data.takeProfit : data.stopLoss
+        }
+    }
+}

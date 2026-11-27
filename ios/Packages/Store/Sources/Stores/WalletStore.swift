@@ -1,0 +1,134 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import GRDB
+import Primitives
+
+public struct WalletStore: Sendable {
+    let db: DatabaseQueue
+
+    public init(
+        db: DB,
+    ) {
+        self.db = db.dbQueue
+    }
+
+    public func addWallet(_ wallet: Wallet) throws {
+        try addWallet(wallet, bsvAddresses: nil)
+    }
+
+    public func addWallet(_ wallet: Wallet, bsvAddresses: (revision: UInt64, value: String)?) throws {
+        if let bsvAddresses, bsvAddresses.revision != 0 {
+            throw AnyError("BSV address initialization revision must be zero")
+        }
+        var record = wallet.record
+        record.order = record.index
+        try db.write { db in
+            try record.insert(db, onConflict: .ignore)
+            for account in wallet.accounts {
+                try account.record(for: wallet.id.id).upsert(db)
+            }
+            if let bsvAddresses {
+                try BsvAddressPoolRecord(walletId: wallet.id.id, revision: 0, value: bsvAddresses.value).insert(db)
+            }
+        }
+    }
+
+    public func getWallet(id walletId: WalletId) throws -> Wallet? {
+        try db.read { db in
+            try WalletRecord
+                .filter(WalletRecord.Columns.id == walletId.id)
+                .including(all: WalletRecord.accounts)
+                .asRequest(of: WalletRecordInfo.self)
+                .fetchOne(db)?
+                .mapToWallet()
+        }
+    }
+
+    public func getWallets() throws -> [Wallet] {
+        try db.read { db in
+            try WalletRecord
+                .including(all: WalletRecord.accounts)
+                .asRequest(of: WalletRecordInfo.self)
+                .fetchAll(db)
+                .map { $0.mapToWallet() }
+        }
+    }
+
+    public func renameWallet(_ walletId: WalletId, name: String) throws {
+        _ = try db.write { db in
+            let assignments = [
+                WalletRecord.Columns.name.set(to: name),
+                WalletRecord.Columns.updatedAt.set(to: Date.now),
+            ]
+            return try WalletRecord
+                .filter(WalletRecord.Columns.id == walletId.id)
+                .updateAll(db, assignments)
+        }
+    }
+
+    @discardableResult
+    public func deleteWallet(for walletId: WalletId) throws -> Bool {
+        try db.write { db in
+            try WalletRecord.deleteOne(db, key: walletId.id)
+            try AccountRecord
+                .filter(AccountRecord.Columns.walletId == walletId.id)
+                .deleteAll(db)
+            return true
+        }
+    }
+
+    public func pinWallet(_ walletId: WalletId, value: Bool) throws {
+        _ = try db.write { db in
+            try WalletRecord
+                .filter(WalletRecord.Columns.id == walletId.id)
+                .updateAll(db, WalletRecord.Columns.isPinned.set(to: value))
+        }
+    }
+
+    public func observer() -> SubscriptionsObserver {
+        SubscriptionsObserver(dbQueue: db)
+    }
+
+    public func setWalletAvatar(_ walletId: WalletId, path: String?) throws {
+        _ = try db.write { db in
+            let assignments = [
+                WalletRecord.Columns.imageUrl.set(to: path),
+                WalletRecord.Columns.updatedAt.set(to: Date.now),
+            ]
+            return try WalletRecord
+                .filter(WalletRecord.Columns.id == walletId.id)
+                .updateAll(db, assignments)
+        }
+    }
+}
+
+extension Wallet {
+    var record: WalletRecord {
+        WalletRecord(
+            id: id,
+            externalId: externalId,
+            name: name,
+            type: type,
+            index: index.asInt,
+            order: 0,
+            isPinned: false,
+            imageUrl: imageUrl,
+            updatedAt: nil,
+            source: source,
+        )
+    }
+}
+
+extension Account {
+    func record(for walletId: String) -> AccountRecord {
+        AccountRecord(
+            walletId: walletId,
+            chain: chain,
+            address: address,
+            extendedPublicKey: extendedPublicKey ?? "",
+            index: 0,
+            derivationPath: derivationPath,
+        )
+    }
+}

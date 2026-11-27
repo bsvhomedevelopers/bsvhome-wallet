@@ -1,0 +1,169 @@
+import Components
+import Formatters
+import InfoSheet
+import Localization
+import BsvHomeCoreServices
+import Primitives
+import PrimitivesComponents
+import Style
+import SwiftUI
+
+public struct PerpetualScene: View {
+    @Environment(\.scenePhase) private var scenePhase
+
+    @Bindable var model: PerpetualSceneViewModel
+
+    public init(model: PerpetualSceneViewModel) {
+        self.model = model
+    }
+
+    public var body: some View {
+        @Bindable var chart = model.chart
+
+        List {
+            Section {} header: {
+                VStack {
+                    VStack {
+                        switch chart.state {
+                        case .noData:
+                            StateEmptyView(title: chart.emptyTitle, image: chart.emptyImage)
+                        case .loading: LoadingView()
+                        case let .data(data):
+                            CandlestickChartView(
+                                model: CandlestickChartViewModel(
+                                    candles: data,
+                                    period: chart.currentPeriod,
+                                    position: model.positions.first?.position,
+                                    formatter: CurrencyFormatter(
+                                        type: .currency,
+                                        currencyCode: Currency.usd.rawValue,
+                                    ),
+                                ),
+                            )
+                        case let .error(error):
+                            StateEmptyView(
+                                title: error.networkOrNoDataDescription,
+                                image: Images.ErrorContent.error,
+                            )
+                        }
+                    }
+                    .frame(height: 320)
+
+                    PeriodSelectorView(selectedPeriod: $chart.currentPeriod)
+                        .padding(.horizontal, Spacing.medium)
+                }
+            }
+            .fullWidthSection()
+
+            ForEach(model.positionViewModels) { position in
+                Section {
+                    ListAssetItemView(
+                        model: PerpetualPositionItemViewModel(model: position),
+                    )
+
+                    ListItemView(field: position.pnlField)
+                        .numericTransition(for: position.pnlWithPercentText)
+
+                    NavigationCustomLink(
+                        with: ListItemView(
+                            title: position.autocloseTitle,
+                            subtitle: position.autocloseText.subtitle,
+                            subtitleExtra: position.autocloseText.subtitleExtra,
+                            infoAction: model.onSelectAutocloseInfo,
+                        ),
+                        action: model.onSelectAutoclose,
+                    )
+
+                    ListItemView(field: position.sizeField)
+                    ListItemView(field: position.entryPriceField)
+
+                    if let liquidationPriceField = position.liquidationPriceField {
+                        ListItemView(
+                            field: liquidationPriceField,
+                            infoAction: model.onSelectLiquidationPriceInfo,
+                        )
+                    }
+
+                    ListItemView(field: position.marginField)
+
+                    ListItemView(
+                        field: position.fundingPaymentsField,
+                        infoAction: model.onSelectFundingPaymentsInfo,
+                    )
+                } header: {
+                    Text(model.positionSectionTitle)
+                }
+            }
+
+            Section {
+                if model.hasOpenPosition {
+                    HStack(spacing: Spacing.medium) {
+                        Button(model.modifyPositionTitle, action: model.onModifyPosition)
+                            .frame(maxWidth: .infinity)
+                            .buttonStyle(.blue())
+
+                        Button(model.closePositionTitle, action: model.onClosePosition)
+                            .frame(maxWidth: .infinity)
+                            .buttonStyle(.red())
+                    }
+                } else {
+                    HStack(spacing: Spacing.medium) {
+                        Button(model.longButtonTitle, action: model.onOpenLongPosition)
+                            .frame(maxWidth: .infinity)
+                            .buttonStyle(.green())
+
+                        Button(model.shortButtonTitle, action: model.onOpenShortPosition)
+                            .frame(maxWidth: .infinity)
+                            .buttonStyle(.red())
+                    }
+                }
+            }
+
+            Section(header: Text(model.infoSectionTitle)) {
+                ListItemView(field: model.perpetualViewModel.volumeField)
+
+                ListItemView(
+                    field: model.perpetualViewModel.openInterestField,
+                    infoAction: model.onSelectOpenInterestInfo,
+                )
+
+                ListItemView(
+                    field: model.perpetualViewModel.fundingRateField,
+                    infoAction: model.onSelectFundingRateInfo,
+                )
+            }
+
+            if !model.transactionSections.isEmpty {
+                TransactionsList(sections: model.transactionSections, currency: model.currency)
+                .listRowInsets(.assetListRowInsets)
+            }
+        }
+        .navigationTitle(model.navigationTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .alertSheet($model.isPresentingAlertMessage)
+        .sheet(item: $model.isPresentingInfoSheet) {
+            InfoSheetScene(type: $0)
+        }
+        .alert(
+            model.modifyPositionTitle,
+            presenting: $model.isPresentingModifyAlert,
+            sensoryFeedback: .warning,
+            actions: { _ in
+                Button(model.increasePositionTitle, action: model.onIncreasePosition)
+                Button(model.reducePositionTitle, role: .destructive, action: model.onReducePosition)
+                Button(Localized.Common.cancel, role: .cancel) {}
+            },
+        )
+        .refreshable {
+            await model.load()
+        }
+        .onAppear {
+            Task { await model.onAppear() }
+        }
+        .onDisappear {
+            Task { await model.onDisappear() }
+        }
+        .onChange(of: scenePhase, model.onScenePhaseChange)
+        .onChange(of: chart.currentPeriod, model.onPeriodChange)
+    }
+}

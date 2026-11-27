@@ -1,0 +1,28 @@
+[package]
+name = "dynode"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+testkit = []
+
+[dependencies]
+config = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+strum = { workspace = true }
+tokio = { workspace = true }
+prometheus-client = { workspace = true }
+reqwest = { workspace = true }
+rocket = { workspace = true }
+primitives = { path = "../../crates/primitives" }
+bsv_home_tracing = { path = "../../crates/tracing" }
+bsv_home_client = { path = "../../crates/bsv_home_client", features = ["reqwest"] }
+bsv_home_encoding = { path = "../../crates/bsv_home_encoding", features = ["protobuf"] }
+metrics = { path = "../../crates/metrics" }
+settings_chain = { path = "../../crates/settings_chain" }
+serde_serializers = { path = "../../crates/serde_serializers" }
+
+url = { workspace = true }
+uuid = { workspace = true }
+bsv_home_auth = { path = "../../crates/bsv_home_auth", features = ["client"] }

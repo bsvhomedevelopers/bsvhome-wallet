@@ -1,0 +1,59 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import struct BsvHomeCore.BsvHomePaymentRecipient
+import enum BsvHomeCore.BsvHomeSelectAssetType
+import Primitives
+
+public enum SelectAssetType: Identifiable, Hashable, Sendable {
+    case send(BsvHomePaymentRecipient?)
+    case receive(ReceiveAssetType)
+    case buy
+    case swap(SelectAssetSwapType)
+    case manage
+    case priceAlert
+    case deposit
+    case withdraw
+
+    public var id: String {
+        switch self {
+        case .send: "send"
+        case let .receive(type): "receive_\(type.id)"
+        case .buy: "buy"
+        case let .swap(type): "swap_\(type.id)"
+        case .manage: "manage"
+        case .priceAlert: "priceAlert"
+        case .deposit: "perps"
+        case .withdraw: "perps_withdrawal"
+        }
+    }
+}
+
+public extension SelectAssetType {
+    var flowType: BsvHomeSelectAssetType {
+        switch self {
+        case .send: .send
+        case .receive(.asset): .receive
+        case .receive(.collection): .receiveCollection
+        case .buy: .buy
+        case .swap(.pay): .swapPay
+        case let .swap(.receive(payAssetId)): .swapReceive(payAssetId: payAssetId?.identifier)
+        case .manage: .manage
+        case .priceAlert: .priceAlert
+        case .deposit: .deposit
+        case .withdraw: .withdraw
+        }
+    }
+}
+
+public enum SelectAssetSwapType: Identifiable, Hashable, Sendable {
+    case pay
+    case receive(payAssetId: AssetId?)
+
+    public var id: String {
+        switch self {
+        case .pay: "pay"
+        case let .receive(payAssetId): "receive_\(payAssetId?.identifier ?? "")"
+        }
+    }
+}

@@ -1,0 +1,60 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import func BsvHomeCore.validatorDisplayName
+import BsvHomeCorePrimitives
+import Localization
+import Primitives
+import PrimitivesComponents
+import Style
+import enum BsvHomeCore.BsvHomeImage
+import SwiftUI
+
+public struct ValidatorViewModel {
+    public let validator: DelegationValidator
+    public init(validator: DelegationValidator) {
+        self.validator = validator
+    }
+
+    public var name: String {
+        validatorDisplayName(validator: validator.map())
+    }
+
+    public var aprModel: AprViewModel {
+        AprViewModel(apr: validator.apr)
+    }
+
+    public var imageUrl: URL? {
+        switch validator.providerType {
+        case .stake:
+            BsvHomeImage.validator(chain: validator.chain.rawValue, validatorId: validator.id).imageURL
+        case .earn:
+            nil
+        }
+    }
+
+    public var image: Image? {
+        switch validator.providerType {
+        case .stake:
+            nil
+        case .earn:
+            switch YieldProvider(rawValue: validator.id) {
+            case .yo: Images.EarnProviders.yo
+            case .none: nil
+            }
+        }
+    }
+
+    public var validatorImage: AssetImage {
+        switch validator.providerType {
+        case .stake:
+            AssetImage(
+                type: .text(String(name.first ?? " ")),
+                imageURL: imageUrl,
+            )
+        case .earn:
+            AssetImage(placeholder: image)
+        }
+    }
+}

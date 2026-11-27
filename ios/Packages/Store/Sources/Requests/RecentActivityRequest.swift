@@ -1,0 +1,57 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import enum BsvHomeCore.BsvHomeRuntimeEnvironment
+import BsvHomeCorePrimitives
+import GRDB
+import Primitives
+
+public struct RecentActivityRequest: DatabaseQueryable {
+    public var walletId: WalletId
+    public var limit: Int
+    public var types: [RecentActivityType]
+    public var filters: [AssetsRequestFilter]
+    private let scopePolicy: AssetQueryScope
+
+    public init(
+        walletId: WalletId,
+        limit: Int = 20,
+        types: [RecentActivityType] = RecentActivityType.allCases,
+        filters: [AssetsRequestFilter] = [],
+        allowedChains: [Chain]? = nil,
+        environment: BsvHomeRuntimeEnvironment = .current,
+    ) {
+        self.walletId = walletId
+        self.limit = limit
+        self.types = types
+        self.filters = filters
+        scopePolicy = AssetQueryScope(environment: environment, allowedChains: allowedChains)
+    }
+
+    public func fetch(_ db: Database) throws -> [RecentAsset] {
+        let recentActivitiesForWallet = AssetRecord.recentActivities
+            .filter(RecentActivityRecord.Columns.walletId == walletId.id)
+            .filter(types.map(\.rawValue).contains(RecentActivityRecord.Columns.type))
+
+        let maxCreatedAt = recentActivitiesForWallet.max(RecentActivityRecord.Columns.createdAt)
+
+        var request = AssetRecord
+            .joining(required: recentActivitiesForWallet)
+            .annotated(with: maxCreatedAt.forKey("maxCreatedAt"))
+            .filter(AssetRecord.Columns.rank >= 0)
+            .filter(scopePolicy.filter(assetId: AssetRecord.Columns.id, chain: AssetRecord.Columns.chain))
+
+        if filters.contains(where: \.referencesBalances) {
+            request = request.joining(optional: AssetRecord.balance.filter(BalanceRecord.Columns.walletId == walletId.id))
+        }
+
+        return try AssetsRequest.applyFilters(request: request, filters)
+            .order(literal: "maxCreatedAt DESC")
+            .limit(limit)
+            .asRequest(of: RecentAssetRecordInfo.self)
+            .fetchAll(db)
+            .map(\.mapToRecentAsset)
+    }
+}
+
+extension RecentActivityRequest: Equatable {}

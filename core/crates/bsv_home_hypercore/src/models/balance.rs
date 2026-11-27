@@ -1,0 +1,85 @@
+use bsv_home_evm::ethereum_address_checksum;
+use serde::{Deserialize, Serialize};
+use serde_serializers::deserialize_f64_from_str;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Balance {
+    pub coin: String,
+    pub token: u32,
+    pub total: String,
+    pub hold: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Balances {
+    pub balances: Vec<Balance>,
+    #[serde(default)]
+    pub token_to_available_after_maintenance: Vec<(u32, String)>,
+}
+
+impl Balances {
+    pub fn available_after_maintenance(&self, token: u32) -> Option<&str> {
+        self.token_to_available_after_maintenance
+            .iter()
+            .find(|(index, _)| *index == token)
+            .map(|(_, amount)| amount.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StakeBalance {
+    pub delegated: String,
+    pub undelegated: String,
+    pub total_pending_withdrawal: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationBalance {
+    pub validator: String,
+    pub amount: String,
+    pub locked_until_timestamp: u64,
+}
+
+impl DelegationBalance {
+    pub fn validator_address(&self) -> String {
+        ethereum_address_checksum(&self.validator).unwrap_or(self.validator.clone())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Validator {
+    pub validator: String,
+    pub name: String,
+    #[serde(deserialize_with = "deserialize_f64_from_str")]
+    pub commission: f64,
+    pub is_active: bool,
+    pub stats: Vec<(String, ValidatorStats)>,
+}
+
+impl Validator {
+    pub fn validator_address(&self) -> String {
+        ethereum_address_checksum(&self.validator).unwrap_or(self.validator.clone())
+    }
+}
+
+impl Validator {
+    pub fn predicted_apr(&self) -> Option<f64> {
+        self.stats.iter().map(|(_, stat)| stat.predicted_apr).max_by(f64::total_cmp).map(|apr| apr * 100.0)
+    }
+
+    pub fn max_apr(validators: &[Validator]) -> f64 {
+        validators.iter().filter(|x| x.is_active).filter_map(|x| x.predicted_apr()).fold(0.0, f64::max)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidatorStats {
+    #[serde(deserialize_with = "deserialize_f64_from_str")]
+    pub predicted_apr: f64,
+}

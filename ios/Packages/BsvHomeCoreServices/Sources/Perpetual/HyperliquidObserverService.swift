@@ -1,0 +1,120 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import BsvHomeCorePrimitives
+import class BsvHomeCore.BsvHomePerpetualService
+import protocol BsvHomeCore.BsvHomePerpetualServiceProtocol
+import protocol BsvHomeCore.BsvHomePerpetualStreamServiceProtocol
+import Foundation
+import struct BsvHomeCore.BsvHomePerpetualConnection
+import enum BsvHomeCore.BsvHomePerpetualSubscription
+import Primitives
+import WebSocketClient
+
+public actor HyperliquidObserverService: PerpetualObservable {
+    private let perpetualService: any BsvHomePerpetualServiceProtocol
+    private let webSocket: any WebSocketConnectable
+    private let streamService: any BsvHomePerpetualStreamServiceProtocol
+
+    private var observeTask: Task<Void, Never>?
+    private var currentWallet: Wallet?
+
+    public let chartService: ChartObserverService
+
+    public init(
+        webSocket: any WebSocketConnectable,
+        perpetualService: any BsvHomePerpetualServiceProtocol,
+        streamService: any BsvHomePerpetualStreamServiceProtocol,
+        chartService: ChartObserverService = ChartObserverService(),
+    ) {
+        self.webSocket = webSocket
+        self.perpetualService = perpetualService
+        self.streamService = streamService
+        self.chartService = chartService
+    }
+
+    deinit {
+        observeTask?.cancel()
+    }
+
+    // MARK: - Public API
+
+    public func setup(for wallet: Wallet) async {
+        await connect(for: wallet)
+    }
+
+    public func disconnect() async {
+        guard observeTask != nil else { return }
+
+        observeTask?.cancel()
+        observeTask = nil
+        currentWallet = nil
+
+        await streamService.disconnected()
+        await webSocket.disconnect()
+    }
+
+    public func subscribe(_ subscription: BsvHomePerpetualSubscription) async throws {
+        try await streamService.subscribe(subscription: subscription)
+    }
+
+    public func unsubscribe(_ subscription: BsvHomePerpetualSubscription) async throws {
+        try await streamService.unsubscribe(subscription: subscription)
+    }
+
+    // MARK: - Private
+
+    private func connect(for wallet: Wallet) async {
+        guard currentWallet?.id != wallet.id else { return }
+
+        await disconnect()
+
+        let connection: BsvHomePerpetualConnection?
+        do {
+            connection = try await perpetualService.connection(wallet: wallet.map())
+        } catch {
+            debugLog("HyperliquidObserver: connection failed: \(error)")
+            return
+        }
+        guard let connection else { return }
+        let mode = connection.mode.map()
+
+        currentWallet = wallet
+        observeTask = Task { [weak self] in
+            guard let self else { return }
+            await observeConnection(walletId: wallet.id, address: connection.address, mode: mode)
+        }
+    }
+
+    private func observeConnection(walletId: WalletId, address: String, mode: PerpetualAccountMode) async {
+        for await event in await webSocket.connect() {
+            guard !Task.isCancelled else { break }
+
+            switch event {
+            case .connected:
+                await handleConnected(address: address, mode: mode)
+            case let .message(data):
+                await handle(data, walletId: walletId, mode: mode)
+            case .disconnected:
+                await streamService.disconnected()
+            }
+        }
+    }
+
+    private func handleConnected(address: String, mode: PerpetualAccountMode) async {
+        do {
+            try await streamService.connected(address: address, mode: mode.map())
+        } catch {
+            debugLog("HyperliquidObserver: subscribe failed: \(error)")
+        }
+    }
+
+    private func handle(_ data: Data, walletId: WalletId, mode: PerpetualAccountMode) async {
+        do {
+            guard let candle = try await streamService.handle(walletId: walletId.id, mode: mode.map(), data: data) else { return }
+            await chartService.yield(candle.map())
+        } catch {
+            debugLog("HyperliquidObserver: handle message failed: \(error)")
+        }
+    }
+
+}

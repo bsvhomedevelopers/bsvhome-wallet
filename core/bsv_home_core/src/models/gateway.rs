@@ -1,0 +1,60 @@
+use crate::address::checksum_address;
+use primitives::FeePriority;
+
+use primitives::{BroadcastOptions, FeeRate, GasPriceType, TransactionInputType, TransactionPreloadInput, UTXO};
+
+pub type BsvHomeUTXO = UTXO;
+
+pub type BsvHomeBroadcastOptions = BroadcastOptions;
+
+#[uniffi::remote(Record)]
+pub struct BroadcastOptions {
+    pub skip_preflight: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BsvHomeFeeRate {
+    pub priority: FeePriority,
+    pub gas_price_type: GasPriceType,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BsvHomeTransactionPreloadInput {
+    pub input_type: TransactionInputType,
+    pub sender_address: String,
+    pub destination_address: String,
+    pub references: Vec<String>,
+}
+
+impl From<FeeRate> for BsvHomeFeeRate {
+    fn from(fee: FeeRate) -> Self {
+        Self {
+            priority: fee.priority,
+            gas_price_type: fee.gas_price_type,
+        }
+    }
+}
+
+impl From<TransactionPreloadInput> for BsvHomeTransactionPreloadInput {
+    fn from(input: TransactionPreloadInput) -> Self {
+        Self {
+            input_type: input.input_type,
+            sender_address: input.sender_address,
+            destination_address: input.destination_address,
+            references: input.references,
+        }
+    }
+}
+
+impl From<BsvHomeTransactionPreloadInput> for TransactionPreloadInput {
+    fn from(input: BsvHomeTransactionPreloadInput) -> Self {
+        let input_type: TransactionInputType = input.input_type;
+        let destination_address = checksum_address(&input.destination_address, input_type.get_asset().chain());
+        Self {
+            input_type,
+            sender_address: input.sender_address,
+            destination_address,
+            references: input.references,
+        }
+    }
+}

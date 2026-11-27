@@ -1,0 +1,116 @@
+pub mod model;
+pub mod permissions;
+pub mod rules;
+pub mod store;
+#[cfg(test)]
+pub(crate) mod testkit;
+
+use crate::services::error::BsvHomeServiceError;
+use std::sync::Arc;
+
+use primitives::{Asset, BannerEvent, BannerState, Wallet};
+
+pub use model::{
+    BsvHomeBannerAction, BsvHomeBannerAmount, BsvHomeBannerContent, BsvHomeBannerContext, BsvHomeBannerDescription, BsvHomeBannerIcon, BsvHomeBannerItem, BsvHomeBannerKey,
+    BsvHomeBannerLink, BsvHomeBannerTitle,
+};
+pub use permissions::BsvHomeNotificationPermissions;
+pub use store::BsvHomeBannerStore;
+
+#[derive(uniffi::Object)]
+pub struct BsvHomeBannerService {
+    store: Arc<dyn BsvHomeBannerStore>,
+}
+
+#[uniffi::export]
+impl BsvHomeBannerService {
+    #[uniffi::constructor]
+    pub fn new(store: Arc<dyn BsvHomeBannerStore>) -> Self {
+        Self { store }
+    }
+
+    pub async fn setup(&self) -> Result<(), BsvHomeServiceError> {
+        self.add_missing_banners(rules::setup_keys()).await
+    }
+
+    pub async fn setup_wallet(&self, wallet: Wallet) -> Result<(), BsvHomeServiceError> {
+        self.add_missing_banners(rules::wallet_setup_keys(&wallet)).await
+    }
+
+    pub async fn apply_action(&self, key: BsvHomeBannerKey, action: BsvHomeBannerAction) -> Result<(), BsvHomeServiceError> {
+        match action.is_dismissal() {
+            true => self.close(key).await,
+            false => Ok(()),
+        }
+    }
+
+    pub async fn close(&self, key: BsvHomeBannerKey) -> Result<(), BsvHomeServiceError> {
+        self.store.set_state(key, BannerState::Cancelled).await
+    }
+
+    pub fn banner_content(&self, event: BannerEvent, asset: Option<Asset>) -> BsvHomeBannerContent {
+        rules::banner_content(event, asset.as_ref())
+    }
+}
+
+impl BsvHomeBannerService {
+    async fn add_missing_banners(&self, keys: Vec<BsvHomeBannerKey>) -> Result<(), BsvHomeServiceError> {
+        let mut missing = Vec::new();
+        for key in keys {
+            if self.store.get_state(key.clone()).await?.is_none() {
+                missing.push(key);
+            }
+        }
+        if missing.is_empty() {
+            return Ok(());
+        }
+        self.store.add_banners(missing, BannerState::Active).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testkit::MemoryBannerStore;
+    use super::*;
+    use futures::executor::block_on;
+    use primitives::{Account, WalletSource};
+
+    fn wallet(source: WalletSource) -> Wallet {
+        Wallet {
+            source,
+            ..Wallet::mock_with_accounts(Account::mock_chains(&[primitives::Chain::Xrp, primitives::Chain::Ethereum], "address"))
+        }
+    }
+
+    #[test]
+    fn test_wallet_setup_writes_its_banners_once() {
+        block_on(async {
+            let store = Arc::new(MemoryBannerStore::default());
+            let service = BsvHomeBannerService::new(store.clone());
+
+            service.setup_wallet(wallet(WalletSource::Create)).await.unwrap();
+            service.setup_wallet(wallet(WalletSource::Create)).await.unwrap();
+
+            let writes = store.writes.lock().unwrap();
+            assert_eq!(writes.len(), 1);
+            assert_eq!(writes[0].len(), rules::wallet_setup_keys(&wallet(WalletSource::Create)).len());
+            assert!(writes[0].iter().any(|key| key.event == BannerEvent::Onboarding));
+        });
+    }
+
+    #[test]
+    fn test_a_dismissed_banner_is_not_recreated_by_setup() {
+        block_on(async {
+            let store = Arc::new(MemoryBannerStore::default());
+            let service = BsvHomeBannerService::new(store.clone());
+            service.setup_wallet(wallet(WalletSource::Import)).await.unwrap();
+            let key = rules::wallet_setup_keys(&wallet(WalletSource::Import)).remove(0);
+            service.close(key.clone()).await.unwrap();
+
+            service.setup_wallet(wallet(WalletSource::Import)).await.unwrap();
+
+            assert_eq!(store.get_state(key).await.unwrap(), Some(BannerState::Cancelled));
+            assert_eq!(store.writes.lock().unwrap().len(), 1);
+        });
+    }
+}

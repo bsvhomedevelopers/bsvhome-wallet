@@ -1,0 +1,81 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import GRDB
+import Primitives
+
+struct AddressRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "addresses"
+
+    enum Columns {
+        static let chain = Column("chain")
+        static let address = Column("address")
+        static let name = Column("name")
+        static let type = Column("type")
+        static let status = Column("status")
+        static let imageUrl = Column("imageUrl")
+    }
+
+    let chain: Chain
+    let address: String
+    let name: String
+    let type: AddressType
+    let status: VerificationStatus
+    var imageUrl: String?
+}
+
+extension AddressRecord: CreateTable {
+    static func create(db: Database) throws {
+        try db.create(table: databaseTableName) {
+            $0.column(Columns.chain.name, .text)
+                .notNull()
+                .references(AssetRecord.databaseTableName, onDelete: .cascade, onUpdate: .cascade)
+            $0.column(Columns.address.name, .text)
+                .notNull()
+            $0.column(Columns.name.name, .text)
+                .notNull()
+            $0.column(Columns.type.name, .text)
+                .notNull()
+            $0.column(Columns.status.name, .text)
+                .notNull()
+                .defaults(to: VerificationStatus.unverified.rawValue)
+            $0.column(Columns.imageUrl.name, .text)
+            $0.primaryKey([Columns.chain.name, Columns.address.name])
+        }
+    }
+}
+
+extension AddressType {
+    var isLocal: Bool {
+        switch self {
+        case .contact, .internalWallet: true
+        case .address, .contract, .validator: false
+        }
+    }
+}
+
+extension AddressRecord {
+    func mapToAddressName() -> AddressName {
+        AddressName(
+            chain: chain,
+            address: address,
+            name: name,
+            type: type,
+            status: status,
+            imageUrl: imageUrl,
+        )
+    }
+}
+
+extension AddressName {
+    var record: AddressRecord {
+        AddressRecord(
+            chain: chain,
+            address: address,
+            name: name,
+            type: type,
+            status: status,
+            imageUrl: imageUrl,
+        )
+    }
+}

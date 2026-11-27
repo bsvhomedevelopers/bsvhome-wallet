@@ -1,0 +1,15 @@
+[package]
+name = "yielder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+num-bigint = { workspace = true }
+bsv_home_evm = { path = "../bsv_home_evm", features = ["rpc"] }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc" }
+primitives = { path = "../primitives" }
+async-trait = { workspace = true }
+futures = { workspace = true }

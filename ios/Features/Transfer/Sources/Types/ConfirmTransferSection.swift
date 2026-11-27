@@ -1,0 +1,76 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import struct BsvHomeCore.BsvHomeSimulationWarningRow
+import struct BsvHomeCore.SimulationPayloadField
+import Primitives
+import PrimitivesComponents
+import Swap
+import SwiftUI
+
+enum ConfirmTransferSectionType: String, Identifiable, Equatable {
+    case header
+    case warnings
+    case details
+    case additionalDetails
+    case balanceChanges
+    case payload
+    case fee
+    case error
+
+    var id: String {
+        rawValue
+    }
+}
+
+public enum ConfirmTransferItem: Identifiable, Hashable, Sendable {
+    case header
+    case warnings
+    case app
+    case sender
+    case network
+    case recipient
+    case memo
+    case details
+    case balanceChange(Int)
+    case additionalDetail(Int)
+    case payload
+    case networkFee
+    case error
+
+    public var id: Self {
+        self
+    }
+}
+
+public enum ConfirmTransferItemModel {
+    case app(ListItemModel)
+    case additionalDetail(ListItemModel)
+    case sender(ListItemModel)
+    case header(TransactionHeaderItemModel)
+    case recipient(AddressListItemViewModel)
+    case network(ListItemModel)
+    case memo(ListItemModel)
+    case swapDetails(SwapDetailsViewModel)
+    case networkFee(ListItemModel, selectable: Bool)
+    case perpetualDetails(PerpetualDetailsViewModel)
+    case perpetualModifyPosition(PerpetualModifyViewModel)
+    case warnings([BsvHomeSimulationWarningRow])
+    case payload([SimulationPayloadField])
+    case balanceChange(ConfirmBalanceChangeViewModel)
+    case error(title: String, error: Error, onInfoAction: VoidAction)
+    case empty
+}
+
+extension ConfirmTransferItemModel: ItemModelProvidable {
+    public var itemModel: ConfirmTransferItemModel {
+        self
+    }
+}
+
+extension ListSection where T == ConfirmTransferItem {
+    init(type: ConfirmTransferSectionType, _ items: [ConfirmTransferItem]) {
+        self.init(type: type, values: items)
+    }
+}

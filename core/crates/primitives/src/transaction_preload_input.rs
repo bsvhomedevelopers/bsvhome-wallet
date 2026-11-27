@@ -1,0 +1,18 @@
+use crate::TransactionInputType;
+
+#[derive(Debug, Clone)]
+pub struct TransactionPreloadInput {
+    pub input_type: TransactionInputType,
+    pub sender_address: String,
+    pub destination_address: String,
+    pub references: Vec<String>,
+}
+
+impl TransactionPreloadInput {
+    pub fn get_website(&self) -> Option<String> {
+        match &self.input_type {
+            TransactionInputType::Generic { metadata: app_metadata, .. } => Some(app_metadata.url.clone()),
+            _ => None,
+        }
+    }
+}

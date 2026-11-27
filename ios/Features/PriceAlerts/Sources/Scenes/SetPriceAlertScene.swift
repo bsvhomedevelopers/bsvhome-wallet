@@ -1,0 +1,113 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import Localization
+import Primitives
+import PrimitivesComponents
+import Store
+import Style
+import SwiftUI
+
+struct SetPriceAlertScene: View {
+    @State private var model: SetPriceAlertViewModel
+
+    @FocusState private var focusedField: Bool
+
+    init(model: SetPriceAlertViewModel) {
+        _model = State(initialValue: model)
+    }
+
+    var body: some View {
+        List {
+            Section {
+                VStack(spacing: .small) {
+                    Text(model.alertDirectionTitle)
+                        .textStyle(.subHeadline)
+
+                    CurrencyInputView(
+                        text: $model.state.amount,
+                        config: model.currencyInputConfig(for: model.assetData),
+                    )
+                    .focused($focusedField)
+                }
+            }
+            .cleanListRow()
+
+            Section {
+                ListAssetItemView(model: model.assetItemViewModel(for: model.assetData))
+            }
+        }
+        .bindQuery(model.assetQuery)
+        .safeAreaView {
+            safeAreaContent
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                alertTypePickerView
+            }
+        }
+        .onChange(of: model.state.type, model.onChangeAlertType)
+        .alertSheet($model.isPresentingAlertMessage)
+        .onAppear {
+            focusedField = true
+        }
+    }
+}
+
+// MARK: - UI
+
+extension SetPriceAlertScene {
+    var alertTypePickerView: some View {
+        Picker("", selection: $model.state.type) {
+            Text(Localized.Asset.price)
+                .tag(SetPriceAlertType.price)
+            Text(Localized.Common.percentage)
+                .tag(SetPriceAlertType.percentage)
+        }
+        .pickerStyle(.segmented)
+        .fixedSize()
+    }
+
+    var confirmButton: StateButton {
+        StateButton(
+            text: Localized.Transfer.confirm,
+            type: .primary(model.confirmButtonState),
+            action: confirm,
+        )
+    }
+
+    @ViewBuilder
+    var safeAreaContent: some View {
+        switch model.state.type {
+        case .price:
+            inputAccessoryView(model.priceSuggestions(for: model.assetData.price))
+        case .percentage:
+            inputAccessoryView(model.percentageSuggestions(for: model.assetData.price))
+        }
+    }
+
+    private func inputAccessoryView(_ suggestions: [some SuggestionViewable]) -> some View {
+        InputAccessoryView(
+            isEditing: focusedField && model.state.amount.isEmpty,
+            suggestions: suggestions,
+            onSelect: onSelectSuggestion,
+            onDone: { focusedField = false },
+            button: confirmButton,
+        )
+    }
+}
+
+// MARK: - Actions
+
+extension SetPriceAlertScene {
+    func onSelectSuggestion(_ suggestion: some SuggestionViewable) {
+        model.onSelectSuggestion(suggestion)
+    }
+
+    func confirm() {
+        Task {
+            await model.setPriceAlert()
+        }
+    }
+}

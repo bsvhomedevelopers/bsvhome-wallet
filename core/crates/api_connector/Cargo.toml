@@ -1,0 +1,12 @@
+[package]
+name = "api_connector"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+serde = { workspace = true }
+primitives = { path = "../primitives" }
+bsv_home_client = { path = "../bsv_home_client", features = ["reqwest"] }
+
+[dev-dependencies]
+primitives = { path = "../primitives", features = ["testkit"] }

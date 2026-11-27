@@ -1,0 +1,123 @@
+package com.gemwallet.android.features.wallet.presents
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gemwallet.android.domains.wallet.aggregates.WalletDetailsAggregate
+import com.gemwallet.android.features.wallet.presents.components.ShowSecretDataProperty
+import com.gemwallet.android.features.wallet.presents.components.WalletAddress
+import com.gemwallet.android.features.wallet.presents.dialogs.ConfirmWalletDeleteDialog
+import com.gemwallet.android.ui.R
+import com.gemwallet.android.ui.components.GemTextField
+import com.gemwallet.android.ui.components.image.WalletAvatar
+import com.gemwallet.android.ui.components.list_item.iconModel
+import com.gemwallet.android.ui.components.screen.Scene
+import com.gemwallet.android.ui.theme.Spacer16
+import com.gemwallet.android.ui.theme.defaultPadding
+import com.gemwallet.android.ui.theme.extraLargeIconSize
+import com.gemwallet.android.ui.theme.paddingDefault
+
+@Composable
+internal fun WalletScene(
+    wallet: WalletDetailsAggregate?,
+    onAction: (WalletAction) -> Unit,
+) {
+    wallet ?: return
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    var walletName by remember(wallet.name) {
+        mutableStateOf(wallet.name)
+    }
+    Scene(
+        title = stringResource(id = R.string.common_wallet),
+        actions = {
+            TextButton(
+                onClick = { onAction(WalletAction.Cancel) },
+                colors = ButtonDefaults.textButtonColors()
+                    .copy(contentColor = MaterialTheme.colorScheme.onBackground)
+            ) {
+                Text(stringResource(R.string.common_done).uppercase())
+            }
+        },
+        onClose = { onAction(WalletAction.Cancel) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            WalletAvatarHeader(wallet = wallet, onClick = { onAction(WalletAction.SelectImage) })
+            GemTextField(
+                modifier = Modifier.fillMaxWidth(),
+                label = stringResource(id = R.string.wallet_name),
+                value = walletName,
+                onValueChange = {
+                    onAction(WalletAction.SetName(it))
+                    walletName = it
+                },
+                singleLine = true,
+            )
+            ShowSecretDataProperty(
+                walletId = wallet.id,
+                secretKind = wallet.secretKind,
+                onClick = { walletId, secretKind -> onAction(WalletAction.ShowPhrase(walletId, secretKind)) },
+            )
+            WalletAddress(wallet.accounts)
+
+            Spacer16()
+
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultPadding(),
+                colors = ButtonDefaults.buttonColors()
+                    .copy(containerColor = MaterialTheme.colorScheme.error),
+                onClick = { showDeleteDialog = true },
+            ) {
+                Text(text = stringResource(id = R.string.common_delete))
+            }
+        }
+    }
+
+    if (showDeleteDialog) {
+        ConfirmWalletDeleteDialog(
+            walletName = walletName,
+            onConfirm = {
+                showDeleteDialog = false
+                onAction(WalletAction.Delete)
+            }
+        ) { showDeleteDialog = false }
+    }
+}
+
+@Composable
+private fun WalletAvatarHeader(
+    wallet: WalletDetailsAggregate,
+    onClick: () -> Unit,
+) {
+    WalletAvatar(
+        imageUrl = wallet.imageUrl,
+        placeholder = wallet.row.placeholder.iconModel(),
+        size = extraLargeIconSize,
+        modifier = Modifier.padding(vertical = paddingDefault),
+        supportIcon = R.drawable.ic_edit_badge,
+        onClick = onClick,
+    )
+}

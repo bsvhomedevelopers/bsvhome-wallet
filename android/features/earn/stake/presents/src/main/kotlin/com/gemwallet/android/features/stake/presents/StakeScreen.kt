@@ -1,0 +1,58 @@
+package com.gemwallet.android.features.stake.presents
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gemwallet.android.ui.R
+import com.gemwallet.android.ui.components.screen.LoadingScene
+import com.gemwallet.android.ui.models.actions.AmountTransactionAction
+import com.gemwallet.android.ui.models.actions.ConfirmTransactionAction
+import com.gemwallet.android.features.stake.viewmodels.StakeViewModel
+
+@Composable
+fun StakeScreen(
+    amountAction: AmountTransactionAction,
+    onConfirm: ConfirmTransactionAction,
+    onDelegation: (String, String) -> Unit,
+    onCancel: () -> Unit,
+    viewModel: StakeViewModel = hiltViewModel()
+) {
+    val inSync by viewModel.isSync.collectAsStateWithLifecycle()
+    val assetInfo by viewModel.assetInfo.collectAsStateWithLifecycle()
+    val delegations by viewModel.delegations.collectAsStateWithLifecycle()
+    val actions by viewModel.actions.collectAsStateWithLifecycle()
+    val rewardsText by viewModel.rewardsText.collectAsStateWithLifecycle()
+    val stakeInfoUrl by viewModel.stakeInfoUrl.collectAsStateWithLifecycle()
+    val lockTimeDays by viewModel.lockTimeDays.collectAsStateWithLifecycle()
+    val minStakeAmount by viewModel.minStakeAmount.collectAsStateWithLifecycle()
+
+    val stakeAssetInfo = assetInfo
+    if (stakeAssetInfo == null) {
+        LoadingScene(
+            title = stringResource(id = R.string.transfer_stake_title),
+            onCancel = onCancel,
+        )
+    } else {
+        StakeScene(
+            inSync = inSync,
+            assetInfo = stakeAssetInfo,
+            delegations = delegations,
+            actions = actions,
+            rewardsText = rewardsText,
+            stakeInfoUrl = stakeInfoUrl,
+            lockTimeDays = lockTimeDays,
+            minStakeAmount = minStakeAmount,
+            amountAction = amountAction,
+            onAction = { action ->
+                when (action) {
+                    StakeSceneAction.Refresh -> viewModel.onRefresh()
+                    StakeSceneAction.ClaimRewards -> viewModel.onRewards(amountAction, onConfirm)
+                    is StakeSceneAction.OpenDelegation -> viewModel.onDelegation(action.delegation, onDelegation, onConfirm)
+                    StakeSceneAction.Cancel -> onCancel()
+                }
+            },
+        )
+    }
+}

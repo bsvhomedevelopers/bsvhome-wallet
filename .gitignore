@@ -1,0 +1,16 @@
+.DS_Store
+.idea/
+android/gradle/gradle-daemon-jvm.properties
+
+core/target/
+core/.env
+core/.vscode/
+core/bsv_home_core/src/.build/
+*.code-workspace
+
+!.agents/
+.agents/*
+!.agents/skills/
+!.claude/
+.claude/*
+!.claude/skills

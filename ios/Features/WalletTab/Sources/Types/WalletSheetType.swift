@@ -1,0 +1,33 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import enum BsvHomeCore.BsvHomePerpetualPositionAction
+import InfoSheet
+import BsvHomeCorePrimitives
+import Primitives
+import PrimitivesComponents
+import struct BsvHomeCore.BsvHomeTransferData
+
+public enum WalletSheetType: Identifiable, Equatable, Sendable {
+    case selectAsset(SelectAssetType, chains: [Chain])
+    case infoSheet(InfoSheetType)
+    case transferData(BsvHomeTransferData)
+    case perpetualPosition(BsvHomePerpetualPositionAction)
+    case addAsset
+    case portfolio(PortfolioType)
+    case addContact(AddContactType)
+    case swap
+
+    public var id: String {
+        switch self {
+        case let .selectAsset(type, _): "selectAsset-\(type.id)"
+        case let .infoSheet(type): "infoSheet-\(type.id)"
+        case let .transferData(data): "transferData-\(data.id)"
+        case .perpetualPosition: "perpetualPosition"
+        case .addAsset: "addAsset"
+        case let .portfolio(type): "portfolio-\(type.id)"
+        case let .addContact(type): "addContact-\(type.id)"
+        case .swap: "swap"
+        }
+    }
+}

@@ -1,0 +1,20 @@
+[package]
+name = "payment"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+primitives = { path = "../primitives" }
+bsv_home_client = { path = "../bsv_home_client" }
+bsv_home_encoding = { path = "../bsv_home_encoding" }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["client"] }
+bsv_home_solana = { path = "../bsv_home_solana" }
+solana-primitives = { workspace = true }
+
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

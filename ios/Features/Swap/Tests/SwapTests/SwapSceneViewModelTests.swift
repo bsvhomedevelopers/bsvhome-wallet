@@ -1,0 +1,527 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import BsvHomeCorePrimitivesTestKit
+import BsvHomeCoreServicesTestKit
+import BigInt
+import protocol BsvHomeCore.BsvHomeSwapQuoteServiceProtocol
+import enum BsvHomeCore.BsvHomeSwapButtonAction
+import enum BsvHomeCore.SwapperError
+import struct BsvHomeCore.BsvHomeSwapPairSuggestion
+import struct BsvHomeCore.BsvHomeSwapQuotesResult
+import struct BsvHomeCore.BsvHomeSwapSession
+import struct BsvHomeCore.SwapperQuote
+import Primitives
+import PrimitivesTestKit
+@testable import Store
+import StoreTestKit
+@testable import Swap
+import BsvHomeCorePrimitives
+import Testing
+
+@MainActor
+struct SwapSceneViewModelTests {
+    @Test
+    func assetIdsIgnoresPairOrder() {
+        let model = SwapSceneViewModel.mock()
+        let assetIds = model.assetIds
+
+        model.fromAssetQuery.value = .mock(asset: .mockEthereumUSDT())
+        model.toAssetQuery.value = .mock(asset: .mockEthereum(), balance: .mock())
+
+        #expect(model.assetIds == assetIds)
+        #expect(model.assetIds == [AssetId.mockEthereum(), AssetId.mockEthereumUSDT()])
+    }
+
+    @Test
+    func suggestPairAppliesTheCoreSuggestion() async {
+        let suggestion = BsvHomeSwapPairSuggestion(payAssetId: AssetId.mockEthereum().identifier, receiveAssetId: AssetId.mockEthereumUSDT().identifier)
+        let model = SwapSceneViewModel.mock(service: BsvHomeSwapQuoteServiceMock(pairSuggestion: suggestion))
+
+        await model.suggestPair()
+
+        #expect(model.pairSelectorModel.fromAssetId == .mockEthereum())
+        #expect(model.pairSelectorModel.toAssetId == .mockEthereumUSDT())
+    }
+
+    @Test
+    func suggestPairKeepsAnAlreadySelectedReceiveAsset() async {
+        let suggestion = BsvHomeSwapPairSuggestion(payAssetId: AssetId.mockEthereum().identifier, receiveAssetId: AssetId.mockSolana().identifier)
+        let model = SwapSceneViewModel.mock(
+            service: BsvHomeSwapQuoteServiceMock(pairSuggestion: suggestion),
+            pairSelector: SwapPairSelectorViewModel(fromAssetId: .mockEthereum(), toAssetId: .mockEthereumUSDT()),
+        )
+
+        await model.suggestPair()
+
+        #expect(model.pairSelectorModel.toAssetId == .mockEthereumUSDT())
+    }
+
+    @Test
+    func toValue() async {
+        #expect(await model().toValue == "250,000")
+        #expect(await model(toValueMock: 1000000).toValue == "1")
+        #expect(await model(toValueMock: 10000).toValue == "0.01")
+        #expect(await model(toValueMock: 12).toValue == "0.000012")
+    }
+
+    @Test
+    func additionalInfoVisibility() {
+        let model = SwapSceneViewModel.mock()
+
+        model.session = .mockLoading()
+        #expect(model.shouldShowAdditionalInfo == false)
+
+        model.session = .mockReady()
+        #expect(model.shouldShowAdditionalInfo)
+    }
+
+    @Test
+    func buttonViewModelFlow() {
+        let model = SwapSceneViewModel.mock()
+
+        model.session = .mockReady()
+        #expect(model.buttonViewModel.buttonAction == BsvHomeSwapButtonAction.swap)
+        #expect(model.buttonViewModel.isVisible)
+
+        model.session = .mockFailed(.NoQuoteAvailable)
+        #expect(model.buttonViewModel.buttonAction == BsvHomeSwapButtonAction.retryQuote)
+
+        model.session = .mockFailed(.InputAmountError(minAmount: "1000"))
+        #expect(model.buttonViewModel.buttonAction == BsvHomeSwapButtonAction.useMinimumAmount(value: 1000))
+
+        model.session = .mockReady().failedTransfer(.NoQuoteAvailable)
+        #expect(model.buttonViewModel.buttonAction == BsvHomeSwapButtonAction.retryTransfer)
+
+        model.session = model.session.onQuoteResults(results: BsvHomeSwapQuotesResult(request: .mock, quotes: [], error: .NoQuoteAvailable))
+        #expect(model.buttonViewModel.buttonAction == BsvHomeSwapButtonAction.retryTransfer)
+    }
+
+    @Test
+    func loadingFlagsSeparateQuoteAndTransferDataStates() {
+        let model = SwapSceneViewModel.mock()
+
+        model.session = .mockLoading()
+        #expect(model.isQuoteLoading)
+        #expect(model.isTransferDataLoading == false)
+        #expect(model.isQuoteInteractionEnabled)
+        #expect(model.isReceiveFieldLoading)
+
+        model.session = BsvHomeSwapSession.mockReady().startTransfer()!
+        #expect(model.isQuoteLoading == false)
+        #expect(model.isTransferDataLoading)
+        #expect(model.isQuoteInteractionEnabled == false)
+        #expect(model.isReceiveFieldLoading == false)
+    }
+
+    @Test
+    func fetchDoesNotRunWhileTransferDataLoading() async {
+        let model = await model()
+        let previousToValue = model.toValue
+        let previousQuote = model.selectedSwapQuote
+
+        model.session = model.session.startTransfer()!
+        await model.load()
+
+        #expect(model.isQuoteLoading == false)
+        #expect(model.toValue == previousToValue)
+        #expect(model.selectedSwapQuote == previousQuote)
+    }
+
+    @Test
+    func quoteChangingActionsClearTransferStateAndDisableProviderSelection() async {
+        let model = await model()
+
+        model.session = model.session.failedTransfer(.TransactionError("nonce"))
+        #expect(model.session.error() != nil)
+
+        model.onFinishSwapProviderSelection(.mock())
+        #expect(model.session.error() == nil)
+
+        model.session = model.session.startTransfer()!
+        #expect(model.swapDetailsViewModel?.allowSelectProvider == false)
+    }
+
+    @Test
+    func cancelledTaskDoesNotUpdateStateWithError() async throws {
+        let service = BsvHomeSwapQuoteServiceMock(
+            quotesDelay: .milliseconds(100),
+            quotesError: SwapperError.NoQuoteAvailable,
+        )
+        let model = SwapSceneViewModel.mock(service: service)
+
+        let task = Task {
+            await model.load()
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        task.cancel()
+        await task.value
+
+        if model.viewState.quoteError != nil {
+            Issue.record("State should not be .error when Task is cancelled")
+        }
+    }
+
+    @Test
+    func emptyInputDoesNotApplyLateQuote() async throws {
+        let service = BsvHomeSwapQuoteServiceMock(
+            quotes: [.mock()],
+            quotesDelay: .milliseconds(100),
+        )
+        let model = SwapSceneViewModel.mock(service: service)
+
+        let task = Task {
+            await model.load()
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        model.amountInputModel.text = "0"
+        model.onChangeFromValue("1", "0")
+
+        await task.value
+
+        #expect(model.viewState.isInputEmpty)
+        #expect(model.toValue.isEmpty)
+        #expect(model.selectedSwapQuote == nil)
+    }
+
+    @Test
+    func changingAmountClearsReceiveValueBeforeFetch() async {
+        let model = await model()
+
+        #expect(model.toValue.isNotEmpty)
+
+        model.amountInputModel.text = "2"
+        model.onChangeFromValue("1", "2")
+
+        #expect(model.isReceiveFieldLoading)
+        #expect(model.toValue.isEmpty)
+        #expect(model.loadTrigger?.isImmediate == false)
+
+        await model.load()
+
+        #expect(model.isReceiveFieldLoading == false)
+        #expect(model.toValue.isNotEmpty)
+    }
+
+    @Test
+    func changingSlippageClearsReceiveValueBeforeFetch() async {
+        let model = await model()
+
+        #expect(model.toValue.isNotEmpty)
+
+        model.onSelectSlippage(.manual(bps: 150))
+
+        #expect(model.isReceiveFieldLoading)
+        #expect(model.toValue.isEmpty)
+        #expect(model.loadTrigger?.isImmediate == true)
+    }
+
+    @Test
+    func clearingInputResetsQuoteImmediately() async {
+        let model = await model()
+
+        #expect(model.toValue.isNotEmpty)
+        #expect(model.selectedSwapQuote != nil)
+
+        model.amountInputModel.text = .empty
+        model.onChangeFromValue("1", .empty)
+
+        #expect(model.viewState.isInputEmpty)
+        #expect(model.toValue.isEmpty)
+        #expect(model.selectedSwapQuote == nil)
+    }
+
+    @Test
+    func emptyInputDoesNotApplyLateError() async throws {
+        let service = BsvHomeSwapQuoteServiceMock(
+            quotesDelay: .milliseconds(100),
+            quotesError: SwapperError.NoQuoteAvailable,
+        )
+        let model = SwapSceneViewModel.mock(service: service)
+
+        let task = Task {
+            await model.load()
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        model.amountInputModel.text = "0"
+        model.onChangeFromValue("1", "0")
+
+        await task.value
+
+        #expect(model.viewState.isInputEmpty)
+        #expect(model.toValue.isEmpty)
+        #expect(model.selectedSwapQuote == nil)
+    }
+
+    @Test
+    func changingReceiveAssetPreservesInputAmount() async {
+        let model = await model()
+        let oldAsset = model.toAsset
+
+        model.session = model.session.failedTransfer(.TransactionError("nonce"))
+        model.loadTrigger = nil
+        model.toAssetQuery.value = .mock(asset: .mockBNB())
+        model.onChangeToAsset(old: oldAsset, new: model.toAsset)
+
+        #expect(model.amountInputModel.text == "1")
+        #expect(model.toValue.isEmpty)
+        #expect(model.selectedSwapQuote == nil)
+        #expect(model.session.error() == nil)
+        #expect(model.loadTrigger?.isImmediate == true)
+    }
+
+    @Test
+    func changingPayAssetClearsInputAmount() async {
+        let model = await model()
+        let oldAsset = model.fromAsset
+
+        model.fromAssetQuery.value = .mock(asset: .mockBNB(), balance: .mock())
+        model.onChangeFromAsset(old: oldAsset, new: model.fromAsset)
+
+        #expect(model.amountInputModel.text.isEmpty)
+        #expect(model.toValue.isEmpty)
+        #expect(model.selectedSwapQuote == nil)
+    }
+
+    @Test
+    func loadTriggerIsImmediate() {
+        let model = SwapSceneViewModel.mock()
+
+        model.loadTrigger = nil
+        model.onChangeFromValue("1", "2")
+
+        #expect(model.loadTrigger?.isImmediate == false)
+
+        model.loadTrigger = nil
+        model.onSelectPercent(50)
+
+        #expect(model.loadTrigger?.isImmediate == true)
+
+        model.loadTrigger = nil
+        model.onChangeToAsset(old: .mock(asset: .mockEthereum()), new: .mock(asset: .mockEthereumUSDT()))
+
+        #expect(model.loadTrigger?.isImmediate == true)
+
+        model.loadTrigger = nil
+        model.session = .mockFailed(.NoQuoteAvailable)
+        model.buttonViewModel.action()
+
+        #expect(model.loadTrigger?.isImmediate == true)
+
+        model.loadTrigger = nil
+        model.session = .mockFailed(.InputAmountError(minAmount: "1000000000000000000"))
+        model.buttonViewModel.action()
+
+        #expect(model.loadTrigger?.isImmediate == true)
+    }
+
+    @Test
+    func retryQuoteUpdatesLoadTrigger() {
+        let model = SwapSceneViewModel.mock()
+
+        model.session = .mockFailed(.NoQuoteAvailable)
+        model.buttonViewModel.action()
+        let firstRetry = model.loadTrigger
+        #expect(model.isQuoteLoading)
+
+        model.session = .mockFailed(.NoQuoteAvailable)
+        model.buttonViewModel.action()
+
+        #expect(model.loadTrigger != firstRetry)
+    }
+
+    @Test
+    func refreshedQuotesKeepSelectedProvider() async {
+        let service = BsvHomeSwapQuoteServiceMock(
+            quotes: [
+                .mock(toValue: 260000000000, provider: .uniswapV3),
+                .mock(toValue: 250000000000, provider: .thorchain),
+            ],
+        )
+        let model = SwapSceneViewModel.mock(service: service)
+
+        model.onFinishSwapProviderSelection(.mock(toValue: 249000000000, provider: .thorchain))
+        await model.load()
+
+        #expect(model.selectedSwapQuote?.data.provider.id == .thorchain)
+        #expect(model.selectedSwapQuote?.toValue == 250000000000)
+    }
+
+    @Test
+    func providerSelectionAppliesWithoutRefetch() async {
+        let service = BsvHomeSwapQuoteServiceMock(
+            quotes: [
+                .mock(toValue: 260000000000, provider: .uniswapV3),
+                .mock(toValue: 250000000000, provider: .thorchain),
+            ],
+        )
+        let model = SwapSceneViewModel.mock(service: service)
+        await model.load()
+
+        #expect(model.selectedSwapQuote?.data.provider.id == .uniswapV3)
+
+        model.onFinishSwapProviderSelection(.mock(toValue: 250000000000, provider: .thorchain))
+
+        #expect(model.selectedSwapQuote?.data.provider.id == .thorchain)
+    }
+
+    @Test
+    func selectedQuoteSurvivesQuotesReload() async {
+        let model = await model()
+
+        model.session = model.session.onFetchStarted(request: .mock)
+
+        #expect(model.isQuoteLoading)
+        #expect(model.selectedSwapQuote != nil)
+        #expect(model.swapDetailsViewModel != nil)
+    }
+
+    @Test
+    func increasedAmountSelectsBestProviderWithoutManualSelection() async {
+        let model = SwapSceneViewModel.mock(service: BsvHomeSwapQuoteServiceMock(quotes: quotesByAmount))
+
+        await model.load()
+
+        #expect(model.selectedSwapQuote?.data.provider.id == .thorchain)
+
+        model.amountInputModel.text = "4"
+        await model.load()
+
+        #expect(model.selectedSwapQuote?.data.provider.id == .uniswapV3)
+        #expect(model.selectedSwapQuote?.toValue == 260000000000)
+    }
+
+    @Test
+    func refreshedQuotesFallBackWhenSelectedProviderDisappears() async {
+        let service = BsvHomeSwapQuoteServiceMock(quotes: [.mock(toValue: 260000000000, provider: .uniswapV3)])
+        let model = SwapSceneViewModel.mock(service: service)
+
+        model.onFinishSwapProviderSelection(.mock(toValue: 249000000000, provider: .thorchain))
+        await model.load()
+
+        #expect(model.selectedSwapQuote?.data.provider.id == .uniswapV3)
+    }
+
+    @Test
+    func changedPairDropsManualProviderSelection() async {
+        let service = BsvHomeSwapQuoteServiceMock(
+            quotes: [
+                .mock(toValue: 260000000000, provider: .uniswapV3),
+                .mock(toValue: 250000000000, provider: .thorchain),
+            ],
+        )
+        let model = SwapSceneViewModel.mock(service: service)
+
+        model.onFinishSwapProviderSelection(.mock(toValue: 249000000000, provider: .thorchain))
+        model.onChangeToAsset(old: .mock(asset: .mockEthereum()), new: .mock(asset: .mockEthereumUSDT()))
+        await model.load()
+
+        #expect(model.selectedSwapQuote?.data.provider.id == .uniswapV3)
+    }
+
+    @Test
+    func slippagePersistsAcrossSessions() {
+        let service = BsvHomeSwapQuoteServiceMock()
+        let model = SwapSceneViewModel.mock(service: service)
+        #expect(model.selectedSlippage == .auto)
+
+        model.onSelectSlippage(.manual(bps: 150))
+
+        #expect(service.slippageBps() == 150)
+        #expect(SwapSceneViewModel.mock(service: service).selectedSlippage == .manual(bps: 150))
+    }
+
+    @Test
+    func minimumAmountIsOfferedOnlyWhenTheBalanceCoversIt() async {
+        let model = SwapSceneViewModel.mock()
+
+        model.session = .mockFailed(.InputAmountError(minAmount: "900000000000000000"))
+        #expect(model.buttonViewModel.buttonAction == .useMinimumAmount(value: 900000000000000000))
+
+        model.session = .mockFailed(.InputAmountError(minAmount: "2000000000000000000"))
+        #expect(model.buttonViewModel.buttonAction == .insufficientBalance)
+    }
+
+    @Test
+    func unaffordableAmountBlocksTheButtonBeforeAnyQuote() {
+        let model = SwapSceneViewModel.mock()
+
+        model.amountInputModel.text = "2"
+
+        #expect(model.viewState.isInputEmpty)
+        #expect(model.buttonViewModel.buttonAction == .insufficientBalance)
+
+        model.amountInputModel.text = "1"
+
+        #expect(model.buttonViewModel.buttonAction == .swap)
+    }
+
+    @Test
+    func onlyRetryableFailuresOfferARetry() {
+        let model = SwapSceneViewModel.mock()
+
+        model.session = .mockFailed(.NoQuoteAvailable)
+        #expect(model.buttonViewModel.buttonAction == .retryQuote)
+
+        model.session = .mockFailed(.NoAvailableProvider)
+        #expect(model.buttonViewModel.buttonAction == .swap)
+
+        model.session = BsvHomeSwapSession.mockReady().failedTransfer(.TransactionError("nonce"))
+        #expect(model.buttonViewModel.buttonAction == .retryTransfer)
+
+        model.session = BsvHomeSwapSession.mockReady().failedTransfer(.NotSupportedAsset)
+        #expect(model.buttonViewModel.buttonAction == .swap)
+    }
+
+    // MARK: - Private methods
+
+    private func model(
+        toValueMock: BigUInt = 250_000_000_000,
+    ) async -> SwapSceneViewModel {
+        let service = BsvHomeSwapQuoteServiceMock(quotes: [.mock(toValue: toValueMock)])
+        let model = SwapSceneViewModel.mock(service: service)
+        await model.load()
+        return model
+    }
+}
+
+extension SwapSceneViewModel {
+    static func mock(
+        service: any BsvHomeSwapQuoteServiceProtocol = BsvHomeSwapQuoteServiceMock(),
+        pairSelector: SwapPairSelectorViewModel = SwapPairSelectorViewModel(fromAssetId: .mockEthereum(), toAssetId: nil),
+    ) -> SwapSceneViewModel {
+        let model = SwapSceneViewModel(
+            service: service,
+            input: .init(
+                wallet: .mock(accounts: [.mock(chain: .ethereum)]),
+                pairSelector: pairSelector,
+            ),
+        )
+        model.fromAssetQuery.value = .mock(asset: .mockEthereum(), balance: .mock())
+        model.toAssetQuery.value = .mock(asset: .mockEthereumUSDT())
+        model.amountInputModel.text = "1"
+
+        return model
+    }
+}
+
+private struct TestError: Error {}
+
+extension BsvHomeSwapSession {
+    func failedTransfer(_ error: SwapperError) -> BsvHomeSwapSession {
+        let started = startTransfer()!
+        return started.onTransferFailed(transfer: started.transferPhase, error: error)
+    }
+}
+
+private let quotesByAmount: @Sendable (BigInt) -> [SwapperQuote] = { amount in
+    guard amount > BigInt(2_000_000_000_000_000_000) else {
+        return [.mock(toValue: 250000000000, provider: .thorchain)]
+    }
+    return [
+        .mock(toValue: 260000000000, provider: .uniswapV3),
+        .mock(toValue: 250000000000, provider: .thorchain),
+    ]
+}

@@ -1,0 +1,103 @@
+{
+  "operations": [],
+  "orders": [
+    {
+      "order_id": "O-legacy-bsv",
+      "client_operation_id": "11111111-1111-4111-8111-111111111111",
+      "direction": "BsvToUsdt",
+      "from": {
+        "asset_id": "bitcoinsv",
+        "symbol": "BSV",
+        "network": "Bitcoin SV",
+        "scale": 8
+      },
+      "to": {
+        "asset_id": "tron_TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        "symbol": "USDT",
+        "network": "TRON / TRC20",
+        "scale": 6
+      },
+      "from_amount": [
+        150000000
+      ],
+      "from_amount_display": "1.5000 BSV",
+      "estimated_to_amount": [
+        12345678
+      ],
+      "estimated_to_amount_display": "12.345678 USDT",
+      "actual_to_amount_display": null,
+      "actual_to_amount": null,
+      "payout_verified": false,
+      "deposit_address": "1L2F8wYxTRagCZLnsm2engg8ngGECSeuE5",
+      "deposit_extra_id": null,
+      "payout_address": "TBKwjUtXVsX1r724C1V52nocBgtioDjx9u",
+      "refund_address": "1L2F8wYxTRagCZLnsm2engg8ngGECSeuE5",
+      "provider_display_name": "Test provider",
+      "provider_order_id": "P-legacy",
+      "order_status": "AWAITING_SIGNATURE",
+      "verification_status": "NOT_REQUIRED",
+      "sync_status": "FRESH",
+      "resolution_status": "OPEN",
+      "last_active_phase": null,
+      "source_txid": null,
+      "broadcast_report_pending": false,
+      "payout_txid": null,
+      "refund_txid": null,
+      "deposit_expires_at": 1790503200,
+      "updated_at": 1790500320,
+      "version": 1,
+      "reason_code": null,
+      "required_actions": [],
+      "can_pay": true
+    },
+    {
+      "order_id": "O-legacy-usdt",
+      "client_operation_id": "11111111-1111-4111-8111-111111111111",
+      "direction": "UsdtToBsv",
+      "from": {
+        "asset_id": "tron_TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        "symbol": "USDT",
+        "network": "TRON / TRC20",
+        "scale": 6
+      },
+      "to": {
+        "asset_id": "bitcoinsv",
+        "symbol": "BSV",
+        "network": "Bitcoin SV",
+        "scale": 8
+      },
+      "from_amount": [
+        12345678
+      ],
+      "from_amount_display": "12.345678 USDT",
+      "estimated_to_amount": [
+        150000000
+      ],
+      "estimated_to_amount_display": "1.5000 BSV",
+      "actual_to_amount_display": null,
+      "actual_to_amount": null,
+      "payout_verified": false,
+      "deposit_address": "TBKwjUtXVsX1r724C1V52nocBgtioDjx9u",
+      "deposit_extra_id": null,
+      "payout_address": "1L2F8wYxTRagCZLnsm2engg8ngGECSeuE5",
+      "refund_address": "TBKwjUtXVsX1r724C1V52nocBgtioDjx9u",
+      "provider_display_name": "Test provider",
+      "provider_order_id": "P-legacy",
+      "order_status": "AWAITING_SIGNATURE",
+      "verification_status": "NOT_REQUIRED",
+      "sync_status": "FRESH",
+      "resolution_status": "OPEN",
+      "last_active_phase": null,
+      "source_txid": null,
+      "broadcast_report_pending": false,
+      "payout_txid": null,
+      "refund_txid": null,
+      "deposit_expires_at": 1790503200,
+      "updated_at": 1790500320,
+      "version": 1,
+      "reason_code": null,
+      "required_actions": [],
+      "can_pay": true
+    }
+  ]
+}

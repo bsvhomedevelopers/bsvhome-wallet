@@ -1,0 +1,24 @@
+[package]
+name = "bsv_home_alchemy"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+default = []
+nft = ["dep:bsv_home_client", "dep:serde", "dep:serde_json"]
+rpc = ["dep:bsv_home_client", "dep:bsv_home_jsonrpc", "dep:num-bigint", "dep:serde", "dep:serde_json", "dep:serde_serializers"]
+
+[dependencies]
+primitives = { path = "../primitives" }
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["client"], optional = true }
+serde_serializers = { path = "../serde_serializers", features = ["bigint"], optional = true }
+
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+num-bigint = { workspace = true, optional = true }
+
+[dev-dependencies]
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["testkit"] }
+tokio = { workspace = true }

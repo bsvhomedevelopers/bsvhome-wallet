@@ -1,0 +1,44 @@
+package com.gemwallet.android.features.earn.delegation.models
+
+import androidx.compose.runtime.Stable
+import com.gemwallet.android.domains.asset.getIconUrl
+import com.gemwallet.android.domains.stake.displayName
+import com.gemwallet.android.model.AssetInfo
+import com.gemwallet.android.model.Crypto
+import com.gemwallet.android.model.ValueFormatter
+import com.gemwallet.android.ui.models.CryptoFormattedUIModel
+import com.gemwallet.android.ui.models.FiatFormattedUIModel
+import com.wallet.core.primitives.Asset
+import com.wallet.core.primitives.Currency
+import com.wallet.core.primitives.Delegation
+
+@Stable
+class HeadDelegationInfo(
+    private val delegation: Delegation,
+    private val assetInfo: AssetInfo,
+    override val currency: Currency,
+) : CryptoFormattedUIModel, FiatFormattedUIModel {
+
+    val iconUrl: String
+        get() = delegation.validator.getIconUrl()
+
+    val iconPlaceholder: String
+        get() = delegation.validator.displayName().take(1)
+
+    override val cryptoAmount: Double by lazy {
+        Crypto(delegation.base.balance).value(asset.decimals).toDouble()
+    }
+
+    override val fiat: Double? by lazy {
+        val price = assetInfo.price?.price?.price ?: 0.0
+        if (price == 0.0) null else cryptoAmount * price
+    }
+
+    override val asset: Asset
+        get() = assetInfo.asset
+
+    override val cryptoFormatted: String by lazy { ValueFormatter(style = ValueFormatter.Style.Auto).string(delegation.base.balance, asset) }
+
+    override val fiatFormatted: String by lazy { super<FiatFormattedUIModel>.fiatFormatted }
+
+}

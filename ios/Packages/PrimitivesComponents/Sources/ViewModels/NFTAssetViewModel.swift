@@ -1,0 +1,22 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import Primitives
+
+public struct NFTAssetViewModel {
+    public let asset: NFTAsset
+
+    public init(asset: NFTAsset) {
+        self.asset = asset
+    }
+
+    public var assetImage: AssetImage {
+        AssetImage(
+            type: .text(asset.name),
+            imageURL: asset.images.preview.url.asURL,
+            placeholder: .none,
+            chainPlaceholder: .none,
+        )
+    }
+}

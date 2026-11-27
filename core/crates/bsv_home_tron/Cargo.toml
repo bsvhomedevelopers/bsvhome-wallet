@@ -1,0 +1,52 @@
+[package]
+name = "bsv_home_tron"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+alloy-sol-types = { workspace = true }
+bs58 = { workspace = true }
+hex = { workspace = true }
+num-bigint = { workspace = true }
+primitives = { path = "../primitives" }
+signer = { path = "../signer", optional = true }
+bsv_home_encoding = { path = "../bsv_home_encoding", features = ["protobuf"] }
+bsv_home_evm = { path = "../bsv_home_evm" }
+bsv_home_hash = { path = "../bsv_home_hash" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_serializers = { path = "../serde_serializers" }
+strum = { workspace = true }
+
+# RPC specific dependencies (optional)
+chrono = { workspace = true, features = ["serde"], optional = true }
+num-traits = { workspace = true, optional = true }
+number_formatter = { path = "../number_formatter", optional = true }
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+chain_traits = { path = "../chain_traits", optional = true }
+chain_primitives = { path = "../chain_primitives", optional = true }
+async-trait = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+
+[features]
+default = []
+signer = ["dep:num-traits", "dep:signer"]
+rpc = [
+    "dep:chrono",
+    "dep:num-traits",
+    "dep:number_formatter",
+    "dep:bsv_home_client",
+    "dep:chain_traits",
+    "dep:chain_primitives",
+    "dep:async-trait",
+    "dep:futures",
+]
+reqwest = ["bsv_home_client/reqwest"]
+chain_integration_tests = ["rpc", "reqwest", "primitives/testkit", "settings/testkit"]
+
+[dev-dependencies]
+chain_traits = { path = "../chain_traits", features = ["testkit"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+primitives = { path = "../primitives", features = ["testkit"] }
+bsv_home_client = { path = "../bsv_home_client", features = ["reqwest", "testkit"] }
+settings = { path = "../settings", features = ["testkit"] }

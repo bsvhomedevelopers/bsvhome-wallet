@@ -1,0 +1,45 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import struct BsvHomeCore.BsvHomeTransferData
+import BsvHomeCorePrimitives
+import Localization
+import Primitives
+import PrimitivesComponents
+
+public struct ConfirmAppViewModel: ItemModelProvidable {
+    private let transfer: BsvHomeTransferData
+
+    init(transfer: BsvHomeTransferData) {
+        self.transfer = transfer
+    }
+}
+
+// MARK: - ItemModelProvidable
+
+public extension ConfirmAppViewModel {
+    var itemModel: ConfirmTransferItemModel {
+        guard let name = appValue else { return .empty }
+
+        return .app(
+            ListItemModel(
+                title: Localized.WalletConnect.app,
+                subtitle: name,
+                imageStyle: .list(assetImage: assetImage),
+            ),
+        )
+    }
+}
+
+// MARK: - Private
+
+extension ConfirmAppViewModel {
+    private var appValue: String? {
+        transfer.applicationShortName()
+    }
+
+    private var assetImage: AssetImage? {
+        transfer.applicationMetadata.map { AssetImage(imageURL: $0.iconURL) }
+    }
+}

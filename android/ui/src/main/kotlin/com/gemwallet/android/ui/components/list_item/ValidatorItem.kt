@@ -1,0 +1,132 @@
+package com.gemwallet.android.ui.components.list_item
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import com.gemwallet.android.domains.asset.getIconUrl
+import com.gemwallet.android.domains.duration.formatAvailableIn
+import com.gemwallet.android.domains.percentage.PercentageFormatterStyle
+import com.gemwallet.android.domains.percentage.formatAsPercentage
+import com.gemwallet.android.domains.stake.displayName
+import com.gemwallet.android.ui.R
+import com.gemwallet.android.ui.components.image.IconWithBadge
+import com.gemwallet.android.ui.models.ListPosition
+import com.gemwallet.android.ui.theme.WalletTheme
+import com.wallet.core.primitives.Chain
+import com.wallet.core.primitives.Delegation
+import com.wallet.core.primitives.DelegationValidator
+import com.wallet.core.primitives.StakeProviderType
+
+@Composable
+fun ValidatorItem(
+    data: DelegationValidator,
+    listPosition: ListPosition,
+    isSelected: Boolean = false,
+    onClick: ((String) -> Unit)?
+) {
+    ListItem(
+        modifier = Modifier.clickable(enabled = onClick != null) { onClick?.invoke(data.id) },
+        leading = {
+            ValidatorIcon(data = data, isSelected = isSelected)
+        },
+        title = {
+            Text(
+                text = data.displayName(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        listPosition = listPosition,
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ListItemSupportText(R.string.stake_apr, " ${data.formatApr()}")
+            }
+        },
+    )
+}
+
+@Composable
+private fun ValidatorIcon(
+    data: DelegationValidator,
+    isSelected: Boolean,
+) {
+    if (isSelected) {
+        IconWithBadge(
+            icon = data.getIconUrl(),
+            placeholder = data.placeholder,
+            badge = { SelectionCheckmark() },
+        )
+    } else {
+        IconWithBadge(
+            icon = data.getIconUrl(),
+            placeholder = data.placeholder,
+        )
+    }
+}
+
+fun DelegationValidator.formatApr(): String {
+    return apr.formatAsPercentage(style = PercentageFormatterStyle.PercentSignLess)
+}
+
+private val DelegationValidator.placeholder: String
+    get() = displayName().firstOrNull()?.toString() ?: "V"
+
+fun availableIn(delegation: Delegation?): String {
+    val remaining = availableInDurationMillis(delegation) ?: return ""
+    return formatAvailableIn(remaining)
+}
+
+internal fun availableInDurationMillis(
+    delegation: Delegation?,
+    currentTimeMillis: Long = System.currentTimeMillis(),
+): Long? = delegation?.base?.completionDate?.minus(currentTimeMillis)
+
+@Composable
+@Preview
+fun PreviewValidatorItem() {
+    WalletTheme {
+        ValidatorItem(
+            data = DelegationValidator(
+                chain = Chain.Sei,
+                id = "some_validator_id",
+                name = "Castlenode",
+                isActive = true,
+                commission = 0.5,
+                apr = 9.10,
+                providerType = StakeProviderType.Stake,
+            ),
+            isSelected = false,
+            listPosition = ListPosition.Middle,
+            onClick = {},
+        )
+    }
+}
+
+@Composable
+@Preview
+fun PreviewValidatorItemSelected() {
+    WalletTheme {
+        ValidatorItem(
+            data = DelegationValidator(
+                chain = Chain.Sei,
+                id = "some_validator_id",
+                name = "Castlenode",
+                isActive = true,
+                commission = 0.5,
+                apr = 9.10,
+                providerType = StakeProviderType.Stake,
+            ),
+            listPosition = ListPosition.Single,
+            isSelected = true,
+            onClick = {},
+        )
+    }
+}

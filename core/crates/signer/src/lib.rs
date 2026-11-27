@@ -1,0 +1,86 @@
+mod address;
+mod decode;
+mod ed25519;
+mod error;
+mod secp256k1;
+
+#[cfg(test)]
+pub(crate) mod testkit {
+    pub const TEST_PRIVATE_KEY: &str = "1e9d38b5274152a78dff1a86fa464ceadc1f4238ca2c17060c3c507349424a34";
+    pub const TEST_PRIVATE_KEY_ETHEREUM_ADDRESS: &str = "0x7785fAEe31d01cA1034076dB76aCd27d88C82795";
+}
+
+use zeroize::Zeroizing;
+
+pub use crate::address::Base32Address;
+pub use crate::ed25519::{ED25519_KEY_TYPE, Ed25519KeyPair};
+pub use crate::error::InvalidInput;
+pub use crate::secp256k1::{
+    RECOVERY_ID_INDEX, SIGNATURE_LENGTH, ensure_ethereum_signature_recovery_id_offset, public_key_from_private as secp256k1_public_key,
+    uncompressed_public_key_from_private as secp256k1_uncompressed_public_key,
+};
+
+pub use decode::{decode_private_key, encode_private_key, supports_private_key_import};
+pub use primitives::SignerError;
+
+pub const CARDANO_EXTENDED_PRIVATE_KEY_LENGTH: usize = 192;
+
+#[derive(Debug, Default)]
+pub struct Signer;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::AsRefStr)]
+#[strum(serialize_all = "lowercase")]
+pub enum SignatureScheme {
+    Ed25519,
+    Ed25519CardanoExtended,
+    Secp256k1,
+}
+
+impl Signer {
+    pub fn sign_digest(scheme: SignatureScheme, digest: &[u8], private_key: &[u8]) -> Result<Vec<u8>, SignerError> {
+        let private_key = Zeroizing::new(private_key.to_vec());
+        match scheme {
+            SignatureScheme::Ed25519 => Ok(Ed25519KeyPair::from_private_key(private_key.as_slice())?.sign(digest).to_vec()),
+            SignatureScheme::Ed25519CardanoExtended => Err(SignerError::signing_error("Cardano extended key signing is handled by bsv_home_cardano")),
+            SignatureScheme::Secp256k1 => secp256k1::sign_digest_append_recovery(digest, private_key.as_slice()),
+        }
+    }
+
+    /// Sign a secp256k1 digest returning [r(32), s(32), v(1)] where v ∈ {27, 28}.
+    pub fn sign_ethereum_digest(digest: &[u8], private_key: &[u8]) -> Result<Vec<u8>, SignerError> {
+        let private_key = Zeroizing::new(private_key.to_vec());
+        secp256k1::sign_ethereum_digest(digest, private_key.as_slice())
+    }
+
+    pub fn recover_ethereum_address(digest: &[u8; 32], signature: &[u8]) -> Result<String, SignerError> {
+        secp256k1::recover_ethereum_address(digest, signature)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::TEST_PRIVATE_KEY;
+
+    #[test]
+    fn ed25519_key_pair_rejects_invalid_length() {
+        let result = Ed25519KeyPair::from_private_key(&[0u8; 16]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ed25519_key_pair_signs_and_derives_public_key() {
+        let private_key = hex::decode(TEST_PRIVATE_KEY).unwrap();
+        let digest = b"test message";
+        let key_pair = Ed25519KeyPair::from_private_key(&private_key).unwrap();
+
+        let signature = key_pair.sign(digest);
+
+        assert_eq!(signature.len(), 64, "Ed25519 signature should be 64 bytes");
+        assert_eq!(key_pair.public_key_bytes.len(), 32, "Ed25519 public key should be 32 bytes");
+
+        let other = Ed25519KeyPair::from_private_key(&private_key).unwrap();
+        assert_eq!(other.sign(digest), signature);
+        assert_eq!(other.public_key_bytes, key_pair.public_key_bytes);
+    }
+}

@@ -1,0 +1,129 @@
+package com.gemwallet.android.ui.components
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
+import com.gemwallet.android.ui.components.list_item.listItem
+import com.gemwallet.android.ui.models.ListPosition
+import com.gemwallet.android.ui.theme.Spacer4
+import com.gemwallet.android.ui.theme.paddingDefault
+import com.gemwallet.android.ui.theme.space10
+
+import com.gemwallet.android.ui.theme.space0
+private const val FloatingLabelScale = 0.8f
+
+@Composable
+fun GemTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String = "",
+    error: String = "",
+    trailing: (@Composable () -> Unit)? = null,
+    singleLine: Boolean = true,
+    readOnly: Boolean = false,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    listPosition: ListPosition = ListPosition.Single,
+    errorDivider: Boolean = false,
+) {
+    val hasFloatingLabel = value.isNotEmpty() && label.isNotEmpty()
+    var textFieldValue by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    if (textFieldValue.text != value) {
+        textFieldValue = TextFieldValue(value, TextRange(value.length))
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .listItem(listPosition)
+            .padding(paddingDefault),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Row(
+            modifier = Modifier.heightIn(min = 36.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                modifier = Modifier.weight(1f),
+                value = textFieldValue,
+                onValueChange = { next ->
+                    textFieldValue = next
+                    if (next.text != value) onValueChange(next.text)
+                },
+                readOnly = readOnly,
+                singleLine = singleLine,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                keyboardActions = keyboardActions,
+                keyboardOptions = keyboardOptions,
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                decorationBox = { innerTextField ->
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (label.isNotEmpty()) {
+                            Text(
+                                modifier = Modifier
+                                    .graphicsLayer {
+                                        scaleX = if (hasFloatingLabel) FloatingLabelScale else 1f
+                                        scaleY = if (hasFloatingLabel) FloatingLabelScale else 1f
+                                        transformOrigin = TransformOrigin(0f, 0f)
+                                    }
+                                    .offset(y = if (hasFloatingLabel) -space10 else space0),
+                                text = label,
+                                color = MaterialTheme.colorScheme.secondary,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                        Box(
+                            modifier = Modifier.offset(y = if (hasFloatingLabel) space10 else space0),
+                        ) {
+                            innerTextField()
+                        }
+                    }
+                }
+            )
+            trailing?.invoke()
+        }
+        if (error.isNotEmpty()) {
+            if (errorDivider) {
+                Spacer4()
+                HorizontalDivider()
+            }
+            Spacer4()
+            Text(
+                modifier = Modifier,
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}

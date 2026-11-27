@@ -1,0 +1,13 @@
+*~
+target/
+generated/
+xcuserdata/
+jniLibs/
+.kotlin/
+gradle-daemon-jvm.properties
+tests/ios/**/.build/
+tests/ios/**/.swiftpm/
+tests/ios/BsvHomeTest/Package.resolved
+tests/ios/build/
+tests/ios/Packages/BsvHomeCore/Sources/BsvHomeCore/
+tests/ios/Packages/BsvHomeCore/Sources/BsvHomeCoreFFI/include/

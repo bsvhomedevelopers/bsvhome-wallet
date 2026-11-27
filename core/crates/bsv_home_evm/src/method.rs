@@ -1,0 +1,15 @@
+pub const ETH_BLOCK_NUMBER: &str = "eth_blockNumber";
+pub const ETH_CALL: &str = "eth_call";
+pub const ETH_CHAIN_ID: &str = "eth_chainId";
+pub const ETH_ESTIMATE_GAS: &str = "eth_estimateGas";
+pub const ETH_FEE_HISTORY: &str = "eth_feeHistory";
+pub const ETH_GAS_PRICE: &str = "eth_gasPrice";
+pub const ETH_GET_BALANCE: &str = "eth_getBalance";
+pub const ETH_GET_BLOCK_BY_NUMBER: &str = "eth_getBlockByNumber";
+pub const ETH_GET_BLOCK_RECEIPTS: &str = "eth_getBlockReceipts";
+pub const ETH_GET_CODE: &str = "eth_getCode";
+pub const ETH_GET_TRANSACTION_BY_HASH: &str = "eth_getTransactionByHash";
+pub const ETH_GET_TRANSACTION_COUNT: &str = "eth_getTransactionCount";
+pub const ETH_GET_TRANSACTION_RECEIPT: &str = "eth_getTransactionReceipt";
+pub const ETH_SEND_RAW_TRANSACTION: &str = "eth_sendRawTransaction";
+pub const TRACE_CALL: &str = "trace_call";

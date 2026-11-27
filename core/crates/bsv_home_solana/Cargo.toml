@@ -1,0 +1,51 @@
+[package]
+name = "bsv_home_solana"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+default = []
+rpc = [
+    "bsv_home_jsonrpc/client",
+    "dep:async-trait",
+    "dep:bsv_home_client",
+    "dep:chain_traits",
+    "dep:futures",
+]
+signer = ["dep:num-traits"]
+reqwest = ["bsv_home_jsonrpc/reqwest"]
+chain_integration_tests = [
+    "rpc",
+    "reqwest",
+    "primitives/testkit",
+    "dep:settings",
+]
+
+[dependencies]
+sha2 = { workspace = true }
+bs58 = { workspace = true }
+borsh = { workspace = true }
+bsv_home_encoding = { path = "../bsv_home_encoding" }
+hex.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+num-bigint = { workspace = true }
+chrono = { workspace = true }
+url = { workspace = true }
+serde_serializers = { path = "../serde_serializers", features = ["bigint"] }
+primitives = { path = "../primitives" }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc" }
+async-trait = { workspace = true, optional = true }
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+chain_traits = { path = "../chain_traits", optional = true }
+futures = { workspace = true, optional = true }
+settings = { path = "../settings", features = ["testkit"], optional = true }
+solana-primitives = { workspace = true }
+num-traits = { workspace = true, optional = true }
+
+[dev-dependencies]
+chain_traits = { path = "../chain_traits", features = ["testkit"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+primitives = { path = "../primitives", features = ["testkit"], default-features = false }
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["testkit"] }

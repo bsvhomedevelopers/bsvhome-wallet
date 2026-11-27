@@ -1,0 +1,20 @@
+use std::error::Error;
+
+use bsv_home_client::{ClientExt, ReqwestClient};
+
+use super::model::ResolveDomain;
+use super::target::UdTarget;
+
+pub struct UdClient {
+    client: ReqwestClient,
+}
+
+impl UdClient {
+    pub fn new(client: ReqwestClient) -> Self {
+        Self { client }
+    }
+
+    pub async fn get_domain(&self, domain: &str) -> Result<ResolveDomain, Box<dyn Error + Send + Sync>> {
+        Ok(self.client.get(UdTarget::Domain { domain: domain.to_string() }).await?)
+    }
+}

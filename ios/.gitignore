@@ -1,0 +1,62 @@
+# Xcode
+*.xcworkspace/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/contents.xcworkspacedata
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+!BsvHome.xcodeproj/project.xcworkspace/
+!BsvHome.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+BsvHome.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+xcuserdata/
+DerivedData/
+build/
+.build/
+.xcframework/
+
+# Swift Package Manager
+.swiftpm/
+.build/
+Packages/*/Package.resolved
+Features/*/Package.resolved
+**/.swiftpm/**/package.xcworkspace/contents.xcworkspacedata
+.swiftpm/config/registries.json
+
+# General macOS files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# General backup and temporary files
+*~
+*.swp
+*.swo
+*.orig
+*.temp
+*.tmp
+*.bak
+
+# VSCode settings
+.vscode/
+.vscode/settings.json
+
+# Claude Code settings
+.claude/settings.local.json
+
+# Generated BsvHomeCore artifacts
+Packages/BsvHomeCore/.swiftpm/
+Packages/BsvHomeCore/Sources/BsvHomeCore/
+Packages/BsvHomeCore/Sources/BsvHomeCoreFFI/include/
+Packages/BsvHomeCore/Sources/BsvHomeCoreFFI.xcframework/
+
+# Compressed files
+*.tar.bz2
+
+# PlantUML files
+sources.txt
+sources.png
+
+# Git-specific
+*.orig
+
+# rust
+target/

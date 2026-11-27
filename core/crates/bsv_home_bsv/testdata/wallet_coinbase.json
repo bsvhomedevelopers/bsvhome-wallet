@@ -1,0 +1,27 @@
+{
+  "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+  "confirmations": 1,
+  "blockheight": 100,
+  "blocktime": 1700000000,
+  "vin": [
+    {
+      "coinbase": "00"
+    }
+  ],
+  "vout": [
+    {
+      "n": 0,
+      "value": 0.0005,
+      "scriptPubKey": {
+        "hex": "76a91479b000887626b294a914501a4cd226b58b23598388ac"
+      }
+    },
+    {
+      "n": 1,
+      "value": 0.0003,
+      "scriptPubKey": {
+        "hex": "76a914ebc0ee0b2ab9e8277a600c251475e22a3241a1c188ac"
+      }
+    }
+  ]
+}

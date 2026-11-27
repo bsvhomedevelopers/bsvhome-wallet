@@ -1,0 +1,81 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import Localization
+import Primitives
+import PrimitivesComponents
+import Store
+import Style
+import SwiftUI
+
+public struct CollectionsScene<ViewModel: CollectionsViewable>: View {
+    @State private var model: ViewModel
+
+    public init(model: ViewModel) {
+        _model = State(initialValue: model)
+    }
+
+    public var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: .zero) {
+                    if model.content.items.isNotEmpty {
+                        LazyVGrid(columns: model.columns) {
+                            collectionsView
+                        }
+                        .padding(.horizontal, Spacing.medium + Spacing.tiny)
+
+                        Spacer(minLength: .medium)
+                    }
+
+                    if let unverifiedCount = model.content.unverifiedCount {
+                        List {
+                            NavigationLink(value: Scenes.UnverifiedCollections()) {
+                                ListItemView(
+                                    title: Localized.Asset.Verification.unverified,
+                                    subtitle: unverifiedCount,
+                                )
+                            }
+                        }
+                        .contentMargins(.top, .zero, for: .scrollContent)
+                        .scrollDisabled(true)
+                        .frame(height: .list.minHeight)
+                    }
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: geometry.size.height - Spacing.scene.top,
+                    alignment: .top,
+                )
+            }
+            .scrollIndicators(
+                model.content.isEmpty ? .hidden : .automatic,
+            )
+        }
+        .bindQuery(model.query)
+        .contentMargins(.top, .scene.top, for: .scrollContent)
+        .overlay {
+            if model.content.isEmpty {
+                EmptyContentView(model: model.emptyContentModel)
+            }
+        }
+        .background { Colors.insetGroupedListStyle.ignoresSafeArea() }
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(model.title)
+        .refreshable { await model.load() }
+        .task { await model.load() }
+    }
+}
+
+// MARK: - UI
+
+extension CollectionsScene {
+    private var collectionsView: some View {
+        ForEach(model.content.items) { item in
+            NavigationLink(value: item.destination) {
+                GridPosterView(model: item.model)
+            }
+        }
+    }
+}

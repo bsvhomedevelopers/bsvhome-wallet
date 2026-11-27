@@ -1,0 +1,87 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import BigInt
+import Formatters
+import Foundation
+import Primitives
+import Style
+import SwiftUI
+
+public struct BalanceViewModel: Sendable {
+    private static let fullFormatter = ValueFormatter(style: .full)
+
+    private let asset: Asset
+    private let balance: Balance
+    private let formatter: ValueFormatter
+
+    public init(
+        asset: Asset,
+        balance: Balance,
+        formatter: ValueFormatter,
+    ) {
+        self.asset = asset
+        self.balance = balance
+        self.formatter = formatter
+    }
+
+    public var balanceAmount: Double {
+        do {
+            return try Self.fullFormatter.double(from: total, decimals: asset.decimals.asInt)
+        } catch {
+            return .zero
+        }
+    }
+
+    public var availableBalanceAmount: Double {
+        do {
+            return try Self.fullFormatter.double(from: balance.available, decimals: asset.decimals.asInt)
+        } catch {
+            return .zero
+        }
+    }
+
+    public var balanceText: String {
+        formatter.balanceString(total, asset: asset)
+    }
+
+    public var availableBalanceText: String {
+        formatter.balanceString(balance.available, asset: asset)
+    }
+
+    public var availableBalanceInputText: String {
+        formatter.inputString(balance.available, decimals: asset.decimals.asInt)
+    }
+
+    public var totalBalanceTextWithSymbol: String {
+        formatter.balanceString(total, asset: asset, currency: asset.symbol)
+    }
+
+    public var availableBalanceTextWithSymbol: String {
+        formatter.balanceString(balance.available, asset: asset, currency: asset.symbol)
+    }
+
+    public func balanceTextWithSymbol(_ value: BigInt) -> String {
+        formatter.balanceString(value, asset: asset, currency: asset.symbol)
+    }
+
+    public var balanceTextColor: Color {
+        guard !total.isZero else {
+            return Colors.gray
+        }
+        return Colors.black
+    }
+
+    public var energyText: String {
+        guard let metadata = balance.metadata else { return "" }
+        return "\(metadata.energyAvailable) / \(metadata.energyTotal)"
+    }
+
+    public var bandwidthText: String {
+        guard let metadata = balance.metadata else { return "" }
+        return "\(metadata.bandwidthAvailable) / \(metadata.bandwidthTotal)"
+    }
+
+    var total: BigInt {
+        balance.total
+    }
+}

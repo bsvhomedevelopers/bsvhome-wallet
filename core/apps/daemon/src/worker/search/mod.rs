@@ -1,0 +1,64 @@
+mod asset_lists_index_updater;
+mod assets_index_updater;
+mod nfts_index_updater;
+mod perpetuals_index_updater;
+mod sync;
+
+use crate::model::WorkerService;
+use crate::worker::context::WorkerContext;
+use crate::worker::jobs::WorkerJob;
+use asset_lists_index_updater::AssetListsIndexUpdater;
+use assets_index_updater::AssetsIndexUpdater;
+use job_runner::{JobHandle, ShutdownReceiver};
+use nfts_index_updater::NftsIndexUpdater;
+use perpetuals_index_updater::PerpetualsIndexUpdater;
+use primitives::ConfigKey;
+use search_index::{SearchIndexClient, SearchIndexConfig};
+use std::error::Error;
+use storage::ConfigCacher;
+
+pub async fn jobs(ctx: WorkerContext, shutdown_rx: ShutdownReceiver) -> Result<Vec<JobHandle>, Box<dyn Error + Send + Sync>> {
+    let database = ctx.database();
+    let settings = ctx.settings();
+    let config = ConfigCacher::new(database.clone());
+
+    let primary_price_max_age = config.get_duration(ConfigKey::PricePrimaryMaxAge)?;
+    let search_index_config = SearchIndexConfig {
+        batch_size: config.get_usize(ConfigKey::SearchIndexBatchSize)?,
+    };
+    let search_index_client = SearchIndexClient::new(&settings.meilisearch.url, settings.meilisearch.key.as_str(), search_index_config);
+    ctx.plan_builder(WorkerService::Search, &config, shutdown_rx)
+        .job(WorkerJob::UpdateAssetsIndex, {
+            let database = database.clone();
+            let search_index_client = search_index_client.clone();
+            move |_| {
+                let updater = AssetsIndexUpdater::new(database.clone(), &search_index_client, primary_price_max_age);
+                async move { updater.update().await }
+            }
+        })
+        .job(WorkerJob::UpdateAssetListsIndex, {
+            let database = database.clone();
+            let search_index_client = search_index_client.clone();
+            move |_| {
+                let updater = AssetListsIndexUpdater::new(database.clone(), &search_index_client);
+                async move { updater.update().await }
+            }
+        })
+        .job(WorkerJob::UpdatePerpetualsIndex, {
+            let database = database.clone();
+            let search_index_client = search_index_client.clone();
+            move |_| {
+                let updater = PerpetualsIndexUpdater::new(database.clone(), &search_index_client);
+                async move { updater.update().await }
+            }
+        })
+        .job(WorkerJob::UpdateNftsIndex, {
+            let database = database.clone();
+            let search_index_client = search_index_client.clone();
+            move |_| {
+                let updater = NftsIndexUpdater::new(database.clone(), &search_index_client);
+                async move { updater.update().await }
+            }
+        })
+        .finish()
+}

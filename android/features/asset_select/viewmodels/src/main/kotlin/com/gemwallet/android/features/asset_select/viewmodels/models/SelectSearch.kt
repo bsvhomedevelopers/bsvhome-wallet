@@ -1,0 +1,8 @@
+package com.gemwallet.android.features.asset_select.viewmodels.models
+
+import com.gemwallet.android.model.AssetInfo
+import kotlinx.coroutines.flow.Flow
+
+interface SelectSearch {
+    fun items(filters: Flow<SelectAssetFilters?>): Flow<List<AssetInfo>>
+}

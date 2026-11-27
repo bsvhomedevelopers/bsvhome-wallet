@@ -1,0 +1,18 @@
+[package]
+name = "bsv_home_blockscout"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+testkit = []
+
+[dependencies]
+bsv_home_client = { path = "../bsv_home_client" }
+serde_serializers = { path = "../serde_serializers", features = ["bigint"] }
+
+num-bigint = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+tokio = { workspace = true }

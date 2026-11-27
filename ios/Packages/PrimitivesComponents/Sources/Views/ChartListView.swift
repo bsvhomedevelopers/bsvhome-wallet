@@ -1,0 +1,35 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import SwiftUI
+
+public struct ChartListView<Model: ChartListViewable, Content: View>: View {
+    @Bindable var model: Model
+    @ViewBuilder let content: () -> Content
+
+    public init(model: Model, @ViewBuilder content: @escaping () -> Content) {
+        self.model = model
+        self.content = content
+    }
+
+    public var body: some View {
+        List {
+            Section {} header: {
+                ChartStateView(
+                    state: model.chartState,
+                    selectedPeriod: $model.selectedPeriod,
+                    periods: model.periods,
+                )
+            }
+            .fullWidthSection()
+            content()
+        }
+        .listSectionSpacing(.compact)
+        .task(id: model.selectedPeriod) {
+            await model.load()
+        }
+        .refreshableTimer(every: .minutes(1)) { @MainActor _ in
+            await model.load()
+        }
+    }
+}

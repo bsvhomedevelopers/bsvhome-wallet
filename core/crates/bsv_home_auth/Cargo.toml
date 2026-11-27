@@ -1,0 +1,28 @@
+[package]
+name = "bsv_home_auth"
+edition = { workspace = true }
+version = { workspace = true }
+
+[features]
+default = []
+client = ["dep:cacher", "dep:chrono", "dep:uuid", "dep:jsonwebtoken"]
+
+[dependencies]
+primitives = { path = "../primitives" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+alloy-primitives = { workspace = true }
+bsv_home_encoding = { path = "../bsv_home_encoding" }
+bsv_home_hash = { path = "../bsv_home_hash" }
+signer = { path = "../signer" }
+ed25519-dalek = { workspace = true }
+zeroize = { workspace = true }
+
+# Optional dependencies for client feature (server-side only)
+cacher = { path = "../cacher", optional = true }
+chrono = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+
+[dev-dependencies]
+primitives = { path = "../primitives", features = ["testkit"] }

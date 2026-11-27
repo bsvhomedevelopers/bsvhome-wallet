@@ -1,0 +1,218 @@
+package com.gemwallet.android.features.settings.price_alerts.presents
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import com.gemwallet.android.ui.components.empty.EmptyContentType
+import com.gemwallet.android.ui.components.empty.EmptyContentView
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import com.gemwallet.android.domains.pricealerts.aggregates.PriceAlertDataAggregate
+import com.gemwallet.android.model.AssetInfo
+import com.gemwallet.android.ui.R
+import com.gemwallet.android.ui.components.list_item.ActionIcon
+import com.gemwallet.android.ui.components.list_item.SubheaderItem
+import com.gemwallet.android.ui.components.list_item.SwipeableItemWithActions
+import com.gemwallet.android.ui.components.list_item.SwitchProperty
+import com.gemwallet.android.ui.components.list_item.property.itemsPositioned
+import com.gemwallet.android.ui.components.screen.PullToRefreshBox
+import com.gemwallet.android.ui.components.screen.Scene
+import com.gemwallet.android.ui.icons.AppIcons
+import com.gemwallet.android.ui.theme.headerIconSize
+import com.gemwallet.android.ui.theme.paddingHalfSmall
+import com.gemwallet.android.ui.theme.paddingLarge
+import com.gemwallet.android.ui.theme.paddingSmall
+import com.gemwallet.android.ui.theme.space0
+import com.wallet.core.primitives.AssetId
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PriceAlertScene(
+    assetInfo: AssetInfo? = null,
+    data: Map<AssetId?, List<PriceAlertDataAggregate>>,
+    enabled: Boolean,
+    syncState: Boolean,
+    isAssetView: Boolean,
+    snackbar: SnackbarHostState? = null,
+    onAction: (PriceAlertAction) -> Unit,
+) {
+    val revealable = remember { mutableStateOf<String?>(null) }
+    Scene(
+        title = stringResource(R.string.settings_price_alerts_title),
+        actions = @Composable {
+            val assetId = assetInfo?.id()
+            IconButton(onClick = if (assetId == null) {
+                { onAction(PriceAlertAction.Add) }
+            } else {
+                { onAction(PriceAlertAction.AddTarget(assetId)) }
+            }) {
+                Icon(imageVector = AppIcons.Add, contentDescription = "")
+            }
+        },
+        snackbar = snackbar,
+        onClose = { onAction(PriceAlertAction.Close) }
+    ) {
+        PullToRefreshBox(
+            modifier = Modifier.fillMaxSize(),
+            isRefreshing = syncState,
+            onRefresh = { onAction(PriceAlertAction.Refresh) },
+        ) {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                if (isAssetView) {
+                    autoAlertToggle(assetInfo, data) { onAction(PriceAlertAction.ToggleAutoAlert(it)) }
+                    val manualData = data.filterKeys { it != null }
+                    emptyAlertingAssets(data.values.flatten().isEmpty())
+                    assets(
+                        revealable = revealable,
+                        data = manualData,
+                        isAssetView = isAssetView,
+                        onChart = { onAction(PriceAlertAction.OpenChart(it)) },
+                        onExclude = { onAction(PriceAlertAction.Exclude(it)) },
+                    )
+                } else {
+                    item {
+                        SwitchProperty(
+                            text = stringResource(R.string.settings_enable_value, ""),
+                            checked = enabled,
+                            onCheckedChange = { onAction(PriceAlertAction.TogglePriceAlerts(it)) }
+                        )
+                        Text(
+                            modifier = Modifier.padding(horizontal = paddingLarge),
+                            text = stringResource(R.string.price_alerts_get_notified_explain_message),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
+                    emptyAlertingAssets(data.values.flatten().isEmpty())
+                    assets(
+                        revealable = revealable,
+                        data = data,
+                        isAssetView = isAssetView,
+                        onChart = { onAction(PriceAlertAction.OpenChart(it)) },
+                        onExclude = { onAction(PriceAlertAction.Exclude(it)) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun LazyListScope.autoAlertToggle(
+    assetInfo: AssetInfo?,
+    data: Map<AssetId?, List<PriceAlertDataAggregate>>,
+    onToggleAutoAlert: (Boolean) -> Unit,
+) {
+    item {
+        val autoAlerts = data[null] ?: emptyList()
+        val isAutoAlertEnabled = autoAlerts.isNotEmpty()
+        val currentAssetInfo = assetInfo ?: return@item
+
+        PriceAlertAutoAssetItem(
+            assetInfo = currentAssetInfo,
+            enabled = isAutoAlertEnabled,
+            onCheckedChange = onToggleAutoAlert,
+        )
+        Text(
+            modifier = Modifier.padding(horizontal = paddingLarge),
+            text = stringResource(R.string.price_alerts_auto_footer),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
+    }
+}
+
+private fun LazyListScope.emptyAlertingAssets(empty: Boolean) {
+    if (!empty) {
+        return
+    }
+    item {
+        EmptyContentView(
+            type = EmptyContentType.PriceAlerts,
+            modifier = Modifier.fillParentMaxHeight(0.5f),
+        )
+    }
+}
+
+private fun LazyListScope.assets(
+    revealable: MutableState<String?>,
+    data: Map<AssetId?, List<PriceAlertDataAggregate>>,
+    isAssetView: Boolean,
+    onChart: (AssetId) -> Unit,
+    onExclude: (String) -> Unit,
+) {
+    data.entries.forEach { item ->
+        if (item.value.isEmpty()) return@forEach
+
+        item.key?.let {
+            item { SubheaderItem(if (isAssetView) stringResource(R.string.stake_active) else item.value.firstOrNull()?.title ?: "") }
+        }
+        assets(revealable, item.value, onChart.takeIf { !isAssetView }, onExclude)
+    }
+}
+
+private fun LazyListScope.assets(
+    revealable: MutableState<String?>,
+    data: List<PriceAlertDataAggregate>,
+    onChart: ((AssetId) -> Unit)?,
+    onExclude: (String) -> Unit,
+) {
+    itemsPositioned(data/*, key = { _, item -> item.id}*/) { position, item ->
+        var minActionWidth by remember { mutableStateOf(space0) }
+        val density = LocalDensity.current
+
+        SwipeableItemWithActions(
+            isRevealed = revealable.value == item.id,
+            actions = @Composable {
+                ActionIcon(
+                    modifier = Modifier
+                        .widthIn(min = minActionWidth)
+                        .heightIn(minActionWidth),
+                    onClick = { onExclude(item.id) },
+                    backgroundColor = MaterialTheme.colorScheme.error,
+                    icon = AppIcons.Delete,
+                )
+            },
+            onExpanded = { revealable.value = item.id },
+            onCollapsed = { revealable.value = null },
+            listPosition = position,
+        ) { position ->
+            PriceAlertAssetItem(
+                modifier = (onChart?.let { Modifier
+                    .clickable(onClick = { onChart(item.assetId) }) } ?: Modifier)
+                    .onSizeChanged {
+                        minActionWidth = with(density) { it.height.toDp() }
+                    },
+                item = item,
+                listPosition = position,
+            )
+        }
+    }
+}

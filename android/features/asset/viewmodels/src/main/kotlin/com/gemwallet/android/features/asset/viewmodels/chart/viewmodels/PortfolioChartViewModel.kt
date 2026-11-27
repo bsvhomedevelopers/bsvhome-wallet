@@ -1,0 +1,161 @@
+package com.gemwallet.android.features.asset.viewmodels.chart.viewmodels
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.gemwallet.android.application.assets.cases.walletChartPeriods
+import com.gemwallet.android.application.session.cases.GetSession
+import com.gemwallet.android.ext.toGem
+import com.gemwallet.android.data.services.gemstone.perpetual.ObservePerpetualWallet
+import com.gemwallet.android.features.asset.viewmodels.chart.models.ChartUIModel
+import com.gemwallet.android.features.asset.viewmodels.chart.models.PortfolioState
+import com.gemwallet.android.features.asset.viewmodels.chart.models.StopTimeoutMillis
+import com.gemwallet.android.model.CurrencyFormatter
+import com.gemwallet.android.model.PriceChangeFormatter
+import com.gemwallet.android.ui.models.StateViewType
+import com.gemwallet.android.ui.models.dataOrNull
+import com.gemwallet.android.ui.models.flatMap
+import com.gemwallet.android.ext.toPrimitives
+import com.wallet.core.primitives.ChartPeriod
+import com.wallet.core.primitives.Currency
+import com.wallet.core.primitives.PortfolioType
+import dagger.hilt.android.lifecycle.HiltViewModel
+import uniffi.gemstone.GemPortfolioServiceInterface
+import uniffi.gemstone.PortfolioChartType
+import uniffi.gemstone.PortfolioData
+import uniffi.gemstone.portfolioChartData
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
+import javax.inject.Inject
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@HiltViewModel
+class PortfolioChartViewModel internal constructor(
+    private val service: GemPortfolioServiceInterface,
+    getSession: GetSession,
+    observePerpetualWallet: ObservePerpetualWallet,
+    initialType: PortfolioType,
+) : ViewModel() {
+    private val _selectedType = MutableStateFlow(initialType)
+    val selectedType = _selectedType.asStateFlow()
+
+    private val _selectedChartType = MutableStateFlow(PortfolioChartType.PNL)
+    val selectedChartType = _selectedChartType.asStateFlow()
+
+    private val selectedPeriod = MutableStateFlow(ChartPeriod.All)
+    private val refreshController = ChartRefreshController()
+
+    val showSegmentedControl = observePerpetualWallet()
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(StopTimeoutMillis), false)
+
+    val isRefreshing = refreshController.isRefreshing
+
+    private val portfolio = combine(
+        selectedType,
+        selectedPeriod,
+        getSession().filterNotNull().distinctUntilChanged(),
+        refreshController.trigger,
+    ) { type, period, session, _ -> PortfolioState(type, period, session.currency) to session.wallet }
+        .transformLatest { (state, wallet) ->
+            emit(state)
+            val data = try {
+                service.portfolioData(wallet.toGem(), state.type.toGem(), state.period.toGem())
+            } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
+                null
+            }
+            refreshController.stopRefreshing()
+            val periods = data?.availablePeriods.orEmpty().map { it.toPrimitives() }
+            when {
+                data == null -> emit(state.copy(data = StateViewType.Error))
+                periods.isNotEmpty() && !periods.contains(state.period) ->
+                    selectedPeriod.compareAndSet(state.period, periods.first())
+                else -> emit(state.copy(data = StateViewType.Data(data)))
+            }
+        }
+        .flowOn(Dispatchers.IO)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(StopTimeoutMillis),
+            PortfolioState(initialType, selectedPeriod.value, Currency.USD),
+        )
+
+    val chartUIState = combine(portfolio, selectedChartType) { state, chartType ->
+        val currencyFormatter = CurrencyFormatter(currency = state.displayCurrency())
+        ChartUIModel.State(
+            period = state.period,
+            chart = state.data.flatMap { data ->
+                portfolioChartData(data, state.type.toGem(), chartType)
+                    ?.let {
+                        StateViewType.Data(
+                            ChartUIModel(
+                                chart = it,
+                                priceFormatter = currencyFormatter::string,
+                                priceChangeFormatter = PriceChangeFormatter(currencyFormatter)::string,
+                            ),
+                        )
+                    }
+                    ?: StateViewType.NoData
+            },
+        )
+    }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(StopTimeoutMillis), ChartUIModel.State())
+
+    val statistics = portfolio
+        .map { it.data.dataOrNull?.statistics.orEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(StopTimeoutMillis), emptyList())
+
+    val currency = portfolio
+        .map { it.displayCurrency() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(StopTimeoutMillis), Currency.USD)
+
+    val availablePeriods = portfolio
+        .map { it.data.dataOrNull?.availablePeriods?.map { period -> period.toPrimitives() }?.takeIf { periods -> periods.isNotEmpty() } ?: walletChartPeriods }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(StopTimeoutMillis), walletChartPeriods)
+
+    fun setType(type: PortfolioType) {
+        _selectedType.value = type
+    }
+
+    fun setChartType(chartType: PortfolioChartType) {
+        _selectedChartType.value = chartType
+    }
+
+    fun setPeriod(period: ChartPeriod) {
+        selectedPeriod.value = period
+    }
+
+    fun refresh() {
+        refreshController.startRefreshing()
+    }
+
+    @Inject
+    constructor(
+        service: GemPortfolioServiceInterface,
+        getSession: GetSession,
+        observePerpetualWallet: ObservePerpetualWallet,
+        savedStateHandle: SavedStateHandle,
+    ) : this(
+        service = service,
+        getSession = getSession,
+        observePerpetualWallet = observePerpetualWallet,
+        initialType = savedStateHandle.portfolioType(),
+    )
+}
+
+private fun PortfolioState.displayCurrency(): Currency =
+    if (type == PortfolioType.Perpetuals) Currency.USD else currency

@@ -1,0 +1,424 @@
+{
+  "warning": "PUBLIC BIP39 TEST MNEMONIC ONLY. NEVER DEPOSIT FUNDS TO THESE ADDRESSES. No real wallet secrets used.",
+  "source": {
+    "repository": "https://github.com/simplycash/simplycashwallet",
+    "commit": "773d541737c0a0b11c81d5682d6cd565ab3e10fc",
+    "configXmlVersion": "0.0.99",
+    "screenshotVersion": "0.0.101",
+    "scope": "Public repository behavior verified. Screenshot binary 0.0.101 not executed or verified.",
+    "sdk": "bsv",
+    "sdkVersion": "0.27.0",
+    "sdkRepository": {
+      "type": "git",
+      "url": "https://github.com/moneybutton/bsv"
+    },
+    "lockedIntegrity": "sha512-dxtwOEdkhi2NmiSnNxEU/9lT04Rdk7nMe1fTDsDm4PzPny5IDmJq7LWuT0Obk90MVGCNX7a66r+56VOVA5YuPg=="
+  },
+  "accountPath": "m/44'/145'/0'",
+  "receiveBranch": 0,
+  "changeBranch": 1,
+  "xpubQrFormat": "Raw Base58 xpub only; no wrapper, path, passphrase or derivationMode in the QR.",
+  "splitQrFormats": {
+    "unsigned": "unsigned <zero-based index> <last index> <JSON chunk>",
+    "signed": "signed <zero-based index> <last index> <raw transaction hex chunk>",
+    "chunking": "segLength=ceil(text.length/ceil(text.length/1100)); split at segLength characters"
+  },
+  "cases": [
+    {
+      "id": "standard-empty-passphrase",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "",
+      "accountPath": "m/44'/145'/0'",
+      "compliant": true,
+      "derivationMode": "standard",
+      "recoveryString": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about:m/44'/145'/0':",
+      "accountXpub": "xpub6ByHsPNSQXTWZ7PLESMY2FufyYWtLXagSUpMQq7Un96SiThZH2iJB1X7pwviH1WtKVeDP6K8d6xxFzzoaFzF3s8BKCZx8oEDdDkNnp4owAZ",
+      "hardenedTrace": [
+        {
+          "parentDepth": 0,
+          "hardenedIndex": 44,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 1,
+          "hardenedIndex": 145,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 2,
+          "hardenedIndex": 0,
+          "parentScalarSerializationBytes": 32
+        }
+      ],
+      "receive": [
+        {
+          "branch": 0,
+          "index": 0,
+          "path": "m/44'/145'/0'/0/0",
+          "address": "1mW6fDEMjKrDHvLvoEsaeLxSCzZBf3Bfg",
+          "publicKey": "02bbe7dbcdf8b2261530a867df7180b17a90b482f74f2736b8a30d3f756e42e217"
+        },
+        {
+          "branch": 0,
+          "index": 1,
+          "path": "m/44'/145'/0'/0/1",
+          "address": "18Cp2ivkLHyJwHMm9NzDRBh6Gi7m4MC2we",
+          "publicKey": "0262f8bf1ab1d25111c569da0133c30f8b3fa411e2f8af2565d3f0111cb34ae7f6"
+        },
+        {
+          "branch": 0,
+          "index": 9,
+          "path": "m/44'/145'/0'/0/9",
+          "address": "1NEAyPqvRzymbxtNBRZJHKiGb5UZxnKNdh",
+          "publicKey": "02fcf6af1167624a2eb48deaed942ff37f1e1703872a2cfd072b2801844b003c64"
+        }
+      ],
+      "change": [
+        {
+          "branch": 1,
+          "index": 0,
+          "path": "m/44'/145'/0'/1/0",
+          "address": "1Kx5UGy1vYzZLDFnCb3i7Ey22GvvtZAofn",
+          "publicKey": "02f178b9410d11e47e10bef8a8e4bc53e48d9ae15864a024a54f87a802dad5f514"
+        },
+        {
+          "branch": 1,
+          "index": 3,
+          "path": "m/44'/145'/0'/1/3",
+          "address": "1NetkCMA8f4SduHt55hkHpiG3fWb88Zju7",
+          "publicKey": "03f21ac096d8f3e464ddcb5aac977acdf4ca168ebcdbfe8379b1c443d1b9e50937"
+        }
+      ]
+    },
+    {
+      "id": "standard-trezor-passphrase",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "TREZOR",
+      "accountPath": "m/44'/145'/0'",
+      "compliant": true,
+      "derivationMode": "standard",
+      "recoveryString": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about:m/44'/145'/0':TREZOR",
+      "accountXpub": "xpub6DE7kxoaimqfhzJEQJfDmGuS2KSoVWJCsviRtUyZwWmLnPwctNU3dc1iyrNKoGggd4bjCc93MesXJxu74NUwD81g8jvLugVYBe41KD5fMrU",
+      "hardenedTrace": [
+        {
+          "parentDepth": 0,
+          "hardenedIndex": 44,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 1,
+          "hardenedIndex": 145,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 2,
+          "hardenedIndex": 0,
+          "parentScalarSerializationBytes": 32
+        }
+      ],
+      "receive": [
+        {
+          "branch": 0,
+          "index": 0,
+          "path": "m/44'/145'/0'/0/0",
+          "address": "1BpiPFc567BR2H9Aa5po1YZXJ26kPcPbSj",
+          "publicKey": "038163d6616b0bf48780ef88b747d3fe23f4fb7c080ae3e76c9d414d58bfea7f4c"
+        },
+        {
+          "branch": 0,
+          "index": 1,
+          "path": "m/44'/145'/0'/0/1",
+          "address": "1GW6s8cadxLeV5WqCHtjqAWytn8iKkK3cq",
+          "publicKey": "03f1c1cefd82f24baf19f2b2b19fcda314bf412ee4cca9ba65c545dcd056e4422a"
+        },
+        {
+          "branch": 0,
+          "index": 9,
+          "path": "m/44'/145'/0'/0/9",
+          "address": "1MxKvtEgXjNDHscRxvTFn2G6zxLBzwwrMK",
+          "publicKey": "03af2d88b4b3be78aaf118b1014c2eefd1c3df82e7d2d12253e7efc603edbcd11b"
+        }
+      ],
+      "change": [
+        {
+          "branch": 1,
+          "index": 0,
+          "path": "m/44'/145'/0'/1/0",
+          "address": "1Nk1WnYBVW5JkbMX3BVuepVMgETm7epz2a",
+          "publicKey": "021013803286e159d8b0b3badccd1b1c8686fc62a4a0e176c4cd6d209baf7e17ef"
+        },
+        {
+          "branch": 1,
+          "index": 3,
+          "path": "m/44'/145'/0'/1/3",
+          "address": "1Be3zCniqanKsDsz25TznkizjX76XM7KrX",
+          "publicKey": "0250b6844b704c6888503aa9e63ad888313cf15b8a38d796fe253ac97be64982a3"
+        }
+      ]
+    },
+    {
+      "id": "legacy-empty-passphrase",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "",
+      "accountPath": "m/44'/145'/0'",
+      "compliant": false,
+      "derivationMode": "legacy-unpadded",
+      "recoveryString": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about:m/44'/145'/0':",
+      "accountXpub": "xpub6ByHsPNSQXTWZ7PLESMY2FufyYWtLXagSUpMQq7Un96SiThZH2iJB1X7pwviH1WtKVeDP6K8d6xxFzzoaFzF3s8BKCZx8oEDdDkNnp4owAZ",
+      "hardenedTrace": [
+        {
+          "parentDepth": 0,
+          "hardenedIndex": 44,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 1,
+          "hardenedIndex": 145,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 2,
+          "hardenedIndex": 0,
+          "parentScalarSerializationBytes": 32
+        }
+      ],
+      "receive": [
+        {
+          "branch": 0,
+          "index": 0,
+          "path": "m/44'/145'/0'/0/0",
+          "address": "1mW6fDEMjKrDHvLvoEsaeLxSCzZBf3Bfg",
+          "publicKey": "02bbe7dbcdf8b2261530a867df7180b17a90b482f74f2736b8a30d3f756e42e217"
+        },
+        {
+          "branch": 0,
+          "index": 1,
+          "path": "m/44'/145'/0'/0/1",
+          "address": "18Cp2ivkLHyJwHMm9NzDRBh6Gi7m4MC2we",
+          "publicKey": "0262f8bf1ab1d25111c569da0133c30f8b3fa411e2f8af2565d3f0111cb34ae7f6"
+        },
+        {
+          "branch": 0,
+          "index": 9,
+          "path": "m/44'/145'/0'/0/9",
+          "address": "1NEAyPqvRzymbxtNBRZJHKiGb5UZxnKNdh",
+          "publicKey": "02fcf6af1167624a2eb48deaed942ff37f1e1703872a2cfd072b2801844b003c64"
+        }
+      ],
+      "change": [
+        {
+          "branch": 1,
+          "index": 0,
+          "path": "m/44'/145'/0'/1/0",
+          "address": "1Kx5UGy1vYzZLDFnCb3i7Ey22GvvtZAofn",
+          "publicKey": "02f178b9410d11e47e10bef8a8e4bc53e48d9ae15864a024a54f87a802dad5f514"
+        },
+        {
+          "branch": 1,
+          "index": 3,
+          "path": "m/44'/145'/0'/1/3",
+          "address": "1NetkCMA8f4SduHt55hkHpiG3fWb88Zju7",
+          "publicKey": "03f21ac096d8f3e464ddcb5aac977acdf4ca168ebcdbfe8379b1c443d1b9e50937"
+        }
+      ]
+    },
+    {
+      "id": "standard-leading-zero-counterpart",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "simplycash-leading-zero-218",
+      "accountPath": "m/44'/145'/0'",
+      "compliant": true,
+      "derivationMode": "standard",
+      "recoveryString": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about:m/44'/145'/0':simplycash-leading-zero-218",
+      "accountXpub": "xpub6CCtfLzX6GcBooge95rbBUsGEihoWGaTTstHVBrEDmjYxMeA4x3nfhtmLVqBkT6pyzCRZNczRq4WWJr4ZHS2VeayX7UQA9AvmognUUz83Wz",
+      "hardenedTrace": [
+        {
+          "parentDepth": 0,
+          "hardenedIndex": 44,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 1,
+          "hardenedIndex": 145,
+          "parentScalarSerializationBytes": 31
+        },
+        {
+          "parentDepth": 2,
+          "hardenedIndex": 0,
+          "parentScalarSerializationBytes": 32
+        }
+      ],
+      "receive": [
+        {
+          "branch": 0,
+          "index": 0,
+          "path": "m/44'/145'/0'/0/0",
+          "address": "16tk9PudyNqBxZXMLMuJnoQVTdcMAYsv5Z",
+          "publicKey": "037fc20c940b2fd39c2704238a9cf1d96d4be70dbbaf4c8c8e61a8b4f8747a406d"
+        },
+        {
+          "branch": 0,
+          "index": 1,
+          "path": "m/44'/145'/0'/0/1",
+          "address": "12oiH81if4ix4sseuuB48Nnsv7Yie9eJVQ",
+          "publicKey": "02c2e6a264c4da0e4c9c5cf68a47629d5a181272536d77bf3b4929decdda5daccf"
+        },
+        {
+          "branch": 0,
+          "index": 9,
+          "path": "m/44'/145'/0'/0/9",
+          "address": "139hZvxriGiZ7zxfvqJBYYH9mgFesPQrSr",
+          "publicKey": "035e137b06394eb66ae8b90bd1b9452a2bd58b823d154c20d2441cef6a41adb5fe"
+        }
+      ],
+      "change": [
+        {
+          "branch": 1,
+          "index": 0,
+          "path": "m/44'/145'/0'/1/0",
+          "address": "1FggZnL3899rGBU33exa7iTGgXM7nBuKm4",
+          "publicKey": "0349712ac73d32bc36d0152a4367db7f361d5729afb8b37752063d148e7fd25e97"
+        },
+        {
+          "branch": 1,
+          "index": 3,
+          "path": "m/44'/145'/0'/1/3",
+          "address": "1BbvUM612nRHuQxW2kdQjc34WaxPtKENFM",
+          "publicKey": "038a37242375ca4c73ba7961474e2c9c388e4d4a60da89494f44676c4031c564c2"
+        }
+      ]
+    },
+    {
+      "id": "legacy-leading-zero",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "simplycash-leading-zero-218",
+      "accountPath": "m/44'/145'/0'",
+      "compliant": false,
+      "derivationMode": "legacy-unpadded",
+      "recoveryString": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about:m/44'/145'/0':simplycash-leading-zero-218",
+      "accountXpub": "xpub6BzpbvPRAU1tWEWLuQNJNJ5RdfQ5Hyi6qw63Yx7cDVYQqcG2ZwiCAJbatuA9pwRQEnwVDtR6nm8pTPotUrRWrH2awpfZnk2qry7mSyrtcou",
+      "hardenedTrace": [
+        {
+          "parentDepth": 0,
+          "hardenedIndex": 44,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 1,
+          "hardenedIndex": 145,
+          "parentScalarSerializationBytes": 31
+        },
+        {
+          "parentDepth": 2,
+          "hardenedIndex": 0,
+          "parentScalarSerializationBytes": 32
+        }
+      ],
+      "receive": [
+        {
+          "branch": 0,
+          "index": 0,
+          "path": "m/44'/145'/0'/0/0",
+          "address": "16SbXEjVMmZ9jUbKMQwZysBsSSzpHzt1xA",
+          "publicKey": "03aaf9afbcd898b1bec5c9e6d79b712b5197a6c6ee9f77c8125988c408b9537930"
+        },
+        {
+          "branch": 0,
+          "index": 1,
+          "path": "m/44'/145'/0'/0/1",
+          "address": "1C8dCRaNSd1wim62XGVsRRigsnEY62EfAE",
+          "publicKey": "03f7fe6136b009857a8a826b9311b31cebd60761245ffac6ce6399d62244cf6c3b"
+        },
+        {
+          "branch": 0,
+          "index": 9,
+          "path": "m/44'/145'/0'/0/9",
+          "address": "19bvrxAJr8WJwp8SCMCheSXVQK8VvJrqN6",
+          "publicKey": "0207e1f1a9f58a024967fdaa138664741e9f467905fde798621f331d9abaa8d336"
+        }
+      ],
+      "change": [
+        {
+          "branch": 1,
+          "index": 0,
+          "path": "m/44'/145'/0'/1/0",
+          "address": "1FDHwy2XFAa91G1orJW7SMq99RZigr3fTQ",
+          "publicKey": "02a120313aef44d6e2536e4da7373ec0d996bb867bd3a6f0623e9556c8d3501d75"
+        },
+        {
+          "branch": 1,
+          "index": 3,
+          "path": "m/44'/145'/0'/1/3",
+          "address": "12hjthKi4pjdXguMX7u1k6xNYLE9gGYEm1",
+          "publicKey": "03fe4f112caaabeb5458cd95e07e278deff93a4059a1ac2139d88b55f15d01dd58"
+        }
+      ]
+    },
+    {
+      "id": "standard-colon-passphrase",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "public:test:passphrase",
+      "accountPath": "m/44'/145'/0'",
+      "compliant": true,
+      "derivationMode": "standard",
+      "recoveryString": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about:m/44'/145'/0':public:test:passphrase",
+      "accountXpub": "xpub6Cw6z59HL9brpfSSWGWMdrKdDpeRHNvJ6iyZXGXEWS76YnZN5Sf243E2KynULucdn3MPnsqRhEY1KQbrZRGVeikqpNcHaMN9sYqdJY4EiYs",
+      "hardenedTrace": [
+        {
+          "parentDepth": 0,
+          "hardenedIndex": 44,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 1,
+          "hardenedIndex": 145,
+          "parentScalarSerializationBytes": 32
+        },
+        {
+          "parentDepth": 2,
+          "hardenedIndex": 0,
+          "parentScalarSerializationBytes": 32
+        }
+      ],
+      "receive": [
+        {
+          "branch": 0,
+          "index": 0,
+          "path": "m/44'/145'/0'/0/0",
+          "address": "1JS4MUFjpphJL3S2N6KEyLzsBWPMxmuEvw",
+          "publicKey": "03e003016f4c074f607a3d7e713c9438a68da133ec80868e0e0ef94b9ee09cc996"
+        },
+        {
+          "branch": 0,
+          "index": 1,
+          "path": "m/44'/145'/0'/0/1",
+          "address": "1L9ABeLQGRLBv3MGKp6JJAgBwqSu2mGTHB",
+          "publicKey": "0269f404fd5c9ecc3fec033545e8c626881bc51a86f6c7833d37a7e54ad1e958bf"
+        },
+        {
+          "branch": 0,
+          "index": 9,
+          "path": "m/44'/145'/0'/0/9",
+          "address": "188ZenJmHUvrEU3ktC4Qtb5HaykstE7g8S",
+          "publicKey": "038ea44d3d71c175405cd6846029e983141c1bec0f0526eac2ee870439e37b428f"
+        }
+      ],
+      "change": [
+        {
+          "branch": 1,
+          "index": 0,
+          "path": "m/44'/145'/0'/1/0",
+          "address": "14PihWPAp6unYMDYdAomFAoV1EUZRsNd6U",
+          "publicKey": "03beb5299695fc30aa61f036e1bd7496455c45d29525ad8ea5fd9bf75163d1a44a"
+        },
+        {
+          "branch": 1,
+          "index": 3,
+          "path": "m/44'/145'/0'/1/3",
+          "address": "1JRX1LJDuFn6Nap92qqV4JTMXQ7THEFdwi",
+          "publicKey": "0238ea762e9873a1d54fd6654f94a2b9a135a64ebd8f59dafeac006097d5390786"
+        }
+      ]
+    }
+  ]
+}

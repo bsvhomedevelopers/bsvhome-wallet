@@ -1,0 +1,38 @@
+[package]
+name = "bsv_home_tempo"
+edition = { workspace = true }
+version = { workspace = true }
+
+[features]
+default = []
+rpc = ["bsv_home_evm/rpc", "dep:async-trait", "dep:chain_traits", "dep:bsv_home_client"]
+reqwest = ["rpc", "bsv_home_evm/reqwest"]
+signer = ["bsv_home_evm/signer", "dep:alloy-rlp", "alloy-primitives/rlp", "dep:hex", "dep:signer"]
+chain_integration_tests = ["rpc", "reqwest", "primitives/testkit", "settings/testkit"]
+
+[dependencies]
+primitives = { path = "../primitives" }
+bsv_home_evm = { path = "../bsv_home_evm" }
+signer = { path = "../signer", optional = true }
+
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+chain_traits = { path = "../chain_traits", optional = true }
+async-trait = { workspace = true, optional = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+alloy-rlp = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+num-bigint = { workspace = true }
+
+[dev-dependencies]
+primitives = { path = "../primitives", features = ["testkit"] }
+bsv_home_evm = { path = "../bsv_home_evm", features = ["testkit"] }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["testkit"] }
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+settings = { path = "../settings", features = ["testkit"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dependencies.settings]
+path = "../settings"
+optional = true

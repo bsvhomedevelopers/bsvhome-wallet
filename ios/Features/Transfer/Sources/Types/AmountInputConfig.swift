@@ -1,0 +1,54 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Formatters
+import enum BsvHomeCore.BsvHomeAmountInputType
+import BsvHomeCorePrimitives
+import Primitives
+import Style
+import SwiftUI
+
+struct AmountInputConfig: CurrencyInputConfigurable {
+    let canSwitchInputType: Bool
+    let inputType: BsvHomeAmountInputType
+    let asset: Asset
+    let currencyFormatter: CurrencyFormatter
+    let numberSanitizer: NumberSanitizer
+    let secondaryText: String
+    let onTapActionButton: (() -> Void)?
+    let usesWholeAmounts: Bool
+
+    var placeholder: String {
+        .zero
+    }
+
+    var keyboardType: UIKeyboardType {
+        usesWholeAmounts ? .numberPad : .decimalPad
+    }
+
+    var currencyPosition: CurrencyTextField.CurrencyPosition {
+        switch inputType {
+        case .asset: .trailing
+        case .fiat: .leading
+        }
+    }
+
+    var currencySymbol: String {
+        switch inputType {
+        case .asset: asset.symbol
+        case .fiat: currencyFormatter.symbol
+        }
+    }
+
+    var actionStyle: CurrencyInputActionStyle? {
+        guard canSwitchInputType else { return nil }
+        return CurrencyInputActionStyle(
+            position: .secondary,
+            image: Images.Actions.swap.renderingMode(.template),
+        )
+    }
+
+    var sanitizer: ((String) -> String)? {
+        { numberSanitizer.sanitize($0) }
+    }
+}

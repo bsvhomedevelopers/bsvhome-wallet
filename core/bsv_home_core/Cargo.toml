@@ -1,0 +1,93 @@
+[package]
+edition = { workspace = true }
+name = "bsv_home_core"
+version = { workspace = true }
+
+[lib]
+crate-type = [
+    "staticlib", # iOS
+    "rlib",      # for Other crate
+    "cdylib",    # Android
+]
+
+name = "bsv_home_core"
+
+[features]
+default = []
+reqwest_provider = ["swapper/reqwest_provider"]
+swap_integration_tests = ["reqwest_provider"]
+
+[dependencies]
+rand = { workspace = true }
+regex = { workspace = true }
+swapper = { path = "../crates/swapper" }
+payment = { path = "../crates/payment" }
+primitives = { path = "../crates/primitives" }
+support = { path = "../crates/support", default-features = false }
+bsv_home_cosmos = { path = "../crates/bsv_home_cosmos", features = ["rpc", "signer"] }
+bsv_home_solana = { path = "../crates/bsv_home_solana", features = ["rpc", "signer"] }
+bsv_home_ton = { path = "../crates/bsv_home_ton", features = ["rpc", "signer"] }
+bsv_home_tron = { path = "../crates/bsv_home_tron", features = ["rpc", "signer"] }
+bsv_home_evm = { path = "../crates/bsv_home_evm", features = ["rpc", "signer"] }
+bsv_home_optimism = { path = "../crates/bsv_home_optimism", features = ["rpc"] }
+bsv_home_everstake = { path = "../crates/bsv_home_everstake", features = ["rpc"] }
+bsv_home_monad = { path = "../crates/bsv_home_monad", features = ["rpc"] }
+bsv_home_bsc = { path = "../crates/bsv_home_bsc", features = ["rpc"] }
+bsv_home_tempo = { path = "../crates/bsv_home_tempo", features = ["rpc", "signer"] }
+simulation = { path = "../crates/simulation", features = ["rpc"] }
+bsv_home_sui = { path = "../crates/bsv_home_sui", features = ["rpc", "signer"] }
+bsv_home_aptos = { path = "../crates/bsv_home_aptos", features = ["rpc"] }
+bsv_home_api = { path = "../crates/bsv_home_api" }
+bsv_home_auth = { path = "../crates/bsv_home_auth" }
+bsv_home_hash = { path = "../crates/bsv_home_hash" }
+bsv_home_jsonrpc = { path = "../crates/bsv_home_jsonrpc", features = ["client"] }
+bsv_home_client = { path = "../crates/bsv_home_client" }
+bsv_home_hypercore = { path = "../crates/bsv_home_hypercore", features = ["signer"] }
+bsv_home_bsv = { path = "../crates/bsv_home_bsv", features = ["rpc", "signer"] }
+bsv_home_bitcoin = { path = "../crates/bsv_home_bitcoin", features = ["rpc", "signer"] }
+bsv_home_cardano = { path = "../crates/bsv_home_cardano", features = ["rpc", "signer"] }
+bsv_home_algorand = { path = "../crates/bsv_home_algorand", features = ["rpc", "signer"] }
+bsv_home_stellar = { path = "../crates/bsv_home_stellar", features = ["rpc", "signer"] }
+bsv_home_xrp = { path = "../crates/bsv_home_xrp", features = ["rpc", "signer"] }
+bsv_home_near = { path = "../crates/bsv_home_near", features = ["rpc", "signer"] }
+bsv_home_polkadot = { path = "../crates/bsv_home_polkadot", features = ["rpc", "signer"] }
+bsv_home_wallet_connect = { path = "../crates/bsv_home_wallet_connect" }
+bsv_home_keystore = { path = "../crates/bsv_home_keystore", features = ["v3"] }
+bsv_home_derivation = { path = "../crates/bsv_home_derivation" }
+bsv_home_crypto = { path = "../crates/bsv_home_crypto", features = ["random", "pbkdf"] }
+chain_traits = { path = "../crates/chain_traits" }
+signer = { path = "../crates/signer" }
+number_formatter = { path = "../crates/number_formatter" }
+yielder = { path = "../crates/yielder" }
+
+sui-types = { workspace = true }
+base64 = { workspace = true }
+bitcoin = { workspace = true }
+
+# uniffi
+uniffi.workspace = true
+
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+alloy-primitives.workspace = true
+hex.workspace = true
+strum = { workspace = true }
+url = { workspace = true }
+num-bigint.workspace = true
+futures.workspace = true
+tracing.workspace = true
+bs58 = { workspace = true }
+bigdecimal.workspace = true
+zeroize = { workspace = true }
+
+[build-dependencies]
+uniffi = { workspace = true, features = ["build"] }
+
+[dev-dependencies]
+bsv_home_bsv = { path = "../crates/bsv_home_bsv", features = ["testkit"] }
+primitives = { path = "../crates/primitives", features = ["testkit"] }
+tempfile = "3.24.0"

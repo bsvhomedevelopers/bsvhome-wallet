@@ -1,0 +1,31 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Localization
+import SwiftUI
+
+public struct AssetStatusView: View {
+    private let model: VerificationStatusViewModel
+    private let action: () -> Void
+
+    public init(
+        model: VerificationStatusViewModel,
+        action: @escaping () -> Void,
+    ) {
+        self.model = model
+        self.action = action
+    }
+
+    public var body: some View {
+        NavigationCustomLink(with:
+            ListItemImageView(
+                title: Localized.Transaction.status,
+                subtitle: model.title,
+                subtitleStyle: model.statusStyle,
+                assetImage: model.assetImage,
+                infoAction: action,
+            )) {
+                action()
+            }
+    }
+}

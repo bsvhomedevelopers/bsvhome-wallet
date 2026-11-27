@@ -1,0 +1,126 @@
+use chrono::{DateTime, NaiveDateTime, Utc};
+use num_bigint::{BigInt, BigUint};
+use primitives::{AssetId, NFTAssetId, NFTCollectionId, PerpetualId, StakeChain, TransactionId, WalletId};
+use std::str::FromStr;
+
+uniffi::custom_type!(StakeChain, String, {
+    remote,
+    lower: |s| s.as_ref().to_string(),
+    try_lift: |s| StakeChain::from_str(&s).map_err(|_| uniffi::deps::anyhow::Error::msg("Invalid StakeChain")),
+});
+
+uniffi::custom_type!(WalletId, String, {
+    remote,
+    lower: |s| s.to_string(),
+    try_lift: |s| WalletId::from_str(&s).map_err(|_| uniffi::deps::anyhow::Error::msg("Invalid WalletId")),
+});
+
+uniffi::custom_type!(AssetId, String, {
+    remote,
+    lower: |s| s.to_string(),
+    try_lift: |s| AssetId::new(&s).ok_or_else(|| uniffi::deps::anyhow::Error::msg("Invalid AssetId")),
+});
+
+uniffi::custom_type!(TransactionId, String, {
+    remote,
+    lower: |s| s.to_string(),
+    try_lift: |s| TransactionId::from_str(&s).map_err(|_| uniffi::deps::anyhow::Error::msg("Invalid TransactionId")),
+});
+
+uniffi::custom_type!(NFTAssetId, String, {
+    remote,
+    lower: |s| s.to_string(),
+    try_lift: |s| NFTAssetId::from_str(&s).map_err(|_| uniffi::deps::anyhow::Error::msg("Invalid NFTAssetId")),
+});
+
+uniffi::custom_type!(NFTCollectionId, String, {
+    remote,
+    lower: |s| s.to_string(),
+    try_lift: |s| NFTCollectionId::from_str(&s).map_err(|_| uniffi::deps::anyhow::Error::msg("Invalid NFTCollectionId")),
+});
+
+uniffi::custom_type!(PerpetualId, String, {
+    remote,
+    lower: |s| s.to_string(),
+    try_lift: |s| PerpetualId::from_str(&s).map_err(|_| uniffi::deps::anyhow::Error::msg("Invalid PerpetualId")),
+});
+
+pub type BsvHomeBigInt = BigInt;
+pub type BsvHomeBigUint = BigUint;
+
+uniffi::custom_type!(BsvHomeBigInt, String, {
+    remote,
+    lower: |value| value.to_string(),
+    try_lift: |s| BigInt::from_str(&s)
+        .map_err(|_| uniffi::deps::anyhow::Error::msg("Invalid BigInt")),
+});
+
+uniffi::custom_type!(BsvHomeBigUint, String, {
+    remote,
+    lower: |value| value.to_string(),
+    try_lift: |s| BigUint::from_str(&s)
+        .map_err(|_| uniffi::deps::anyhow::Error::msg("Invalid BigUint")),
+});
+
+pub type BsvHomeJsonValue = serde_json::Value;
+
+uniffi::custom_type!(BsvHomeJsonValue, String, {
+    remote,
+    lower: |value: BsvHomeJsonValue| value.to_string(),
+    try_lift: |value: String| serde_json::from_str(&value).map_err(|error| uniffi::deps::anyhow::Error::msg(format!("invalid json value: {error}"))),
+});
+
+pub type DateTimeUtc = DateTime<Utc>;
+
+uniffi::custom_type!(DateTimeUtc, i64, {
+    remote,
+    lower: |value: DateTimeUtc| value.timestamp(),
+    try_lift: |timestamp| {
+        DateTime::<Utc>::from_timestamp(timestamp, 0)
+            .ok_or_else(|| uniffi::deps::anyhow::Error::msg("Invalid timestamp"))
+    },
+});
+
+pub type NaiveDateTimeUtc = NaiveDateTime;
+
+uniffi::custom_type!(NaiveDateTimeUtc, i64, {
+    remote,
+    lower: |value: NaiveDateTimeUtc| value.and_utc().timestamp(),
+    try_lift: |timestamp| {
+        DateTime::<Utc>::from_timestamp(timestamp, 0)
+            .map(|value| value.naive_utc())
+            .ok_or_else(|| uniffi::deps::anyhow::Error::msg("Invalid timestamp"))
+    },
+});
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lift_big_int(value: &str) -> uniffi::Result<BsvHomeBigInt> {
+        let mut buffer = Vec::new();
+        <String as uniffi::Lower<crate::UniFfiTag>>::write(value.to_string(), &mut buffer);
+        <BsvHomeBigInt as uniffi::Lift<crate::UniFfiTag>>::try_read(&mut buffer.as_slice())
+    }
+
+    fn lift_big_uint(value: &str) -> uniffi::Result<BsvHomeBigUint> {
+        let mut buffer = Vec::new();
+        <String as uniffi::Lower<crate::UniFfiTag>>::write(value.to_string(), &mut buffer);
+        <BsvHomeBigUint as uniffi::Lift<crate::UniFfiTag>>::try_read(&mut buffer.as_slice())
+    }
+
+    #[test]
+    fn test_a_malformed_big_integer_is_rejected_at_the_boundary_instead_of_reading_as_zero() {
+        assert_eq!(lift_big_int("101").unwrap(), BsvHomeBigInt::from(101));
+        assert_eq!(lift_big_int("-101").unwrap(), BsvHomeBigInt::from(-101));
+        assert!(lift_big_int("").is_err());
+        assert!(lift_big_int("not-a-number").is_err());
+    }
+
+    #[test]
+    fn test_a_negative_or_malformed_unsigned_value_is_rejected_at_the_boundary() {
+        assert_eq!(lift_big_uint("101").unwrap(), BsvHomeBigUint::from(101u32));
+        assert!(lift_big_uint("-1").is_err());
+        assert!(lift_big_uint("").is_err());
+    }
+}
