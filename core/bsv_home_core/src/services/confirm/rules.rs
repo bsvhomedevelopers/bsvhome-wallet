@@ -1,0 +1,1313 @@
+use primitives::{
+    ApplicationMetadataSource, Asset, AssetId, Chain, ChainType, FeePriority, FeeUnitType, ScanAddressTarget, ScanTransaction, ScanTransactionPayload, SimulationResult,
+    SimulationWarningType, Transaction, TransactionPreloadInput, Wallet,
+};
+
+use super::error::BsvHomeConfirmError;
+use super::model::{
+    BsvHomeAcquireAssetFlow, BsvHomeApprovalValue, BsvHomeConfirmData, BsvHomeConfirmFeeLoad, BsvHomeConfirmFeeSelection, BsvHomeConfirmInput, BsvHomeConfirmLoad,
+    BsvHomeConfirmMetadata, BsvHomeConfirmPreload, BsvHomeConfirmSimulationState, BsvHomeFeeAsset, BsvHomeFeeRateRow, BsvHomeFeeRateRows, BsvHomeTransferAmountResult, SendInput,
+};
+use crate::config::chain::custom_fee_enabled;
+use crate::models::custom_types::BsvHomeBigUint;
+use crate::models::gateway::{BsvHomeBroadcastOptions, BsvHomeFeeRate, BsvHomeTransactionPreloadInput};
+use crate::models::transaction::{BsvHomeSignedTransaction, BsvHomeSignerInput, BsvHomeTransactionLoadFee, BsvHomeTransactionLoadInput};
+use crate::services::balance::BsvHomeAssetBalance;
+use crate::services::balance::BsvHomeBalanceRequirement;
+use crate::services::collections::unique;
+use crate::services::transactions::BsvHomeAmountSign;
+use crate::services::transfer::BsvHomePendingTransactionInput;
+use crate::services::transfer::rules::TransferInput;
+use crate::transfer_amount::{BsvHomeTransferAmountError, BsvHomeTransferAmountInput};
+use num_bigint::{BigInt, Sign};
+use primitives::AssetPrice;
+use primitives::TransactionInputType;
+
+impl SendInput {
+    pub(super) fn signer_input(&self) -> Result<BsvHomeSignerInput, BsvHomeConfirmError> {
+        let BsvHomeConfirmInput { from, transfer } = &self.confirm.input;
+        let chain = transfer.input_type.get_asset().chain();
+        let sender_address = signing_address(&self.wallet, chain, &from.address)?;
+        Ok(BsvHomeSignerInput {
+            input: BsvHomeTransactionLoadInput {
+                input_type: transfer.input_type.clone(),
+                sender_address,
+                destination_address: transfer.recipient.address.clone(),
+                value: self.value.to_biguint().ok_or_else(|| BsvHomeConfirmError::Load {
+                    msg: "negative transfer value".to_string(),
+                })?,
+                gas_price: self.confirm.fee.gas_price_type.clone(),
+                memo: transfer.recipient.memo.clone(),
+                is_max_value: transfer.use_max_amount,
+                metadata: self.confirm.metadata.clone(),
+            },
+            fee: BsvHomeTransactionLoadFee {
+                fee: self.network_fee.clone(),
+                ..self.confirm.fee.clone()
+            },
+        })
+    }
+}
+
+fn signing_address(wallet: &Wallet, chain: Chain, from: &str) -> Result<String, BsvHomeConfirmError> {
+    let signer = wallet.account(chain).ok_or(BsvHomeConfirmError::AccountMissing { chain })?;
+    if signer.address != from {
+        return Err(BsvHomeConfirmError::SenderMismatch {
+            from: from.to_string(),
+            signer: signer.address.clone(),
+        });
+    }
+    Ok(signer.address.clone())
+}
+
+pub fn metadata_asset_ids(asset_id: &AssetId, fee_asset_id: &AssetId, extra_asset_ids: Vec<AssetId>) -> Vec<AssetId> {
+    unique([asset_id.clone(), fee_asset_id.clone()].into_iter().chain(extra_asset_ids))
+}
+
+pub(super) trait ConfirmInput {
+    fn approval_value(&self) -> Option<(AssetId, BsvHomeApprovalValue)>;
+    fn validate_approvals(&self, transactions: &[BsvHomeSignedTransaction]) -> Result<(), BsvHomeConfirmError>;
+    fn simulation_payload(&self) -> Option<String>;
+    fn validate_simulation(&self, simulation: &SimulationResult) -> Result<(), BsvHomeConfirmError>;
+    fn broadcast_options(&self) -> BsvHomeBroadcastOptions;
+}
+
+impl ConfirmInput for TransactionInputType {
+    fn approval_value(&self) -> Option<(AssetId, BsvHomeApprovalValue)> {
+        match self {
+            Self::TokenApprove { asset, approval_data } => Some((asset.id.clone(), approval_value_from(Some(&approval_data.value), approval_data.is_unlimited))),
+            Self::Transfer { .. }
+            | Self::Deposit { .. }
+            | Self::Swap { .. }
+            | Self::Stake { .. }
+            | Self::Generic { .. }
+            | Self::TransferNft { .. }
+            | Self::Account { .. }
+            | Self::Perpetual { .. }
+            | Self::Earn { .. }
+            | Self::Withdrawal { .. } => None,
+        }
+    }
+
+    fn validate_approvals(&self, transactions: &[BsvHomeSignedTransaction]) -> Result<(), BsvHomeConfirmError> {
+        for transaction in transactions {
+            self.approval(transaction.transaction_type.clone())
+                .map_err(|msg| BsvHomeConfirmError::ApprovalInvalid { msg })?;
+        }
+        Ok(())
+    }
+
+    fn simulation_payload(&self) -> Option<String> {
+        let Self::Generic { metadata, extra, .. } = self else {
+            return None;
+        };
+        match metadata.source {
+            ApplicationMetadataSource::Payment => extra.data.as_ref().and_then(|data| String::from_utf8(data.clone()).ok()),
+            ApplicationMetadataSource::WalletConnect => None,
+        }
+    }
+
+    fn validate_simulation(&self, simulation: &SimulationResult) -> Result<(), BsvHomeConfirmError> {
+        let Self::Generic { metadata, .. } = self else {
+            return Ok(());
+        };
+
+        match metadata.source {
+            ApplicationMetadataSource::Payment => {}
+            ApplicationMetadataSource::WalletConnect => return Ok(()),
+        }
+
+        if let Some(warning) = simulation.warnings.iter().find(|warning| warning.warning == SimulationWarningType::ValidationError) {
+            return Err(BsvHomeConfirmError::Load {
+                msg: warning.message.clone().unwrap_or_else(|| "Payment simulation failed".to_string()),
+            });
+        }
+        Ok(())
+    }
+
+    fn broadcast_options(&self) -> BsvHomeBroadcastOptions {
+        let skip_preflight = match (self.get_asset().chain(), self) {
+            (Chain::Solana, Self::Generic { metadata, .. }) => match metadata.source {
+                ApplicationMetadataSource::Payment => false,
+                ApplicationMetadataSource::WalletConnect => true,
+            },
+            (Chain::Solana, Self::Swap { .. }) => true,
+            _ => false,
+        };
+        BsvHomeBroadcastOptions { skip_preflight }
+    }
+}
+
+pub fn approval_value_from(value: Option<&BsvHomeBigUint>, is_unlimited: bool) -> BsvHomeApprovalValue {
+    match value {
+        Some(value) if !is_unlimited => BsvHomeApprovalValue::Exact { value: value.clone() },
+        _ => BsvHomeApprovalValue::Unlimited,
+    }
+}
+
+#[uniffi::export]
+impl BsvHomeConfirmData {
+    pub fn fee_rate_rows(&self, selection: BsvHomeConfirmFeeSelection, fee_asset: Asset) -> BsvHomeFeeRateRows {
+        fee_rate_rows(self.input.transfer.input_type.get_asset().chain(), &fee_asset, &self.fee_rates, &selection, &self.fee)
+    }
+}
+
+impl BsvHomeConfirmData {
+    pub(super) fn preload_amount(&self, metadata: &BsvHomeConfirmMetadata, fee_asset: &Asset) -> Result<BsvHomeTransferAmountResult, BsvHomeConfirmError> {
+        let transfer = &self.input.transfer;
+        let available_value = transfer
+            .available_value(&metadata.asset_balance)
+            .map_err(|error| BsvHomeConfirmError::Load { msg: error.to_string() })?;
+        let input = BsvHomeTransferAmountInput {
+            input_type: transfer.input_type.clone(),
+            value: transfer.value.clone(),
+            available_value,
+            fee_asset: fee_asset.id.clone(),
+            fee_asset_balance: metadata.fee_asset_balance.available.clone().into(),
+            fee: self.fee.fee.clone(),
+            is_max_amount: transfer.use_max_amount,
+        };
+        Ok(match input.calculate() {
+            Ok(amount) => BsvHomeTransferAmountResult::Amount { amount },
+            Err(error) => BsvHomeTransferAmountResult::Error {
+                error: amount_error(error, transfer.input_type.get_asset(), fee_asset),
+            },
+        })
+    }
+}
+
+fn amount_error(error: BsvHomeTransferAmountError, asset: &Asset, fee_asset: &Asset) -> BsvHomeConfirmError {
+    let error_asset = |asset_id: &AssetId| if &asset.id == asset_id { asset.clone() } else { fee_asset.clone() };
+    match error {
+        BsvHomeTransferAmountError::InsufficientBalance { asset_id, required, available } => BsvHomeConfirmError::InsufficientBalance {
+            asset: error_asset(&asset_id),
+            requirement: BsvHomeBalanceRequirement::new(required, available),
+        },
+        BsvHomeTransferAmountError::InsufficientNetworkFee { asset_id, required, available } => BsvHomeConfirmError::InsufficientNetworkFee {
+            asset: error_asset(&asset_id),
+            requirement: Some(BsvHomeBalanceRequirement::new(required, available)),
+        },
+        BsvHomeTransferAmountError::MinimumAccountBalanceTooLow { asset_id, required, available } => BsvHomeConfirmError::MinimumAccountBalanceTooLow {
+            asset: error_asset(&asset_id),
+            requirement: BsvHomeBalanceRequirement::new(required, available),
+        },
+        BsvHomeTransferAmountError::BelowSwapMinimum {
+            asset_id,
+            provider,
+            minimum,
+            value,
+        } => BsvHomeConfirmError::BelowSwapMinimum {
+            asset: error_asset(&asset_id),
+            provider,
+            provider_name: provider.name().to_string(),
+            requirement: BsvHomeBalanceRequirement::new(minimum, value),
+        },
+    }
+}
+
+pub fn preload_simulation(request: Option<&SimulationResult>, preload: &BsvHomeConfirmPreload) -> Option<SimulationResult> {
+    match request {
+        Some(_) => None,
+        None => preload.confirm_data.simulation.clone(),
+    }
+}
+
+impl BsvHomeConfirmLoad {
+    pub(super) fn with_fee(self, fee: BsvHomeConfirmFeeLoad, simulation: Option<BsvHomeConfirmSimulationState>) -> Self {
+        Self {
+            fee_asset: fee.fee_asset,
+            metadata: fee.metadata,
+            simulation: simulation.unwrap_or(self.simulation),
+            preload: Some(fee.preload),
+            ..self
+        }
+    }
+}
+
+pub fn balance_change_sign(value: &BigInt) -> BsvHomeAmountSign {
+    match value.sign() {
+        Sign::Plus => BsvHomeAmountSign::Incoming,
+        Sign::Minus => BsvHomeAmountSign::Outgoing,
+        Sign::NoSign => BsvHomeAmountSign::None,
+    }
+}
+
+pub fn selectable_fee_assets(assets: Vec<Asset>, balances: Vec<BsvHomeAssetBalance>, prices: Vec<AssetPrice>) -> Vec<BsvHomeFeeAsset> {
+    balances
+        .into_iter()
+        .filter(|balance| balance.available > num_bigint::BigUint::from(0u32))
+        .filter_map(|balance| {
+            let asset = assets.iter().find(|asset| asset.id == balance.asset_id)?.clone();
+            let price = prices.iter().find(|price| price.asset_id == balance.asset_id).cloned();
+            Some(BsvHomeFeeAsset { asset, balance, price })
+        })
+        .collect()
+}
+
+pub fn build_metadata(
+    asset_id: AssetId,
+    fee_asset_id: AssetId,
+    balances: Vec<BsvHomeAssetBalance>,
+    prices: Vec<AssetPrice>,
+) -> Result<BsvHomeConfirmMetadata, BsvHomeConfirmError> {
+    Ok(BsvHomeConfirmMetadata {
+        asset_balance: asset_balance(&balances, &asset_id)?,
+        fee_asset_balance: asset_balance(&balances, &fee_asset_id)?,
+        prices,
+    })
+}
+
+fn asset_balance(balances: &[BsvHomeAssetBalance], asset_id: &AssetId) -> Result<BsvHomeAssetBalance, BsvHomeConfirmError> {
+    balances
+        .iter()
+        .find(|balance| balance.asset_id == *asset_id)
+        .cloned()
+        .ok_or_else(|| BsvHomeConfirmError::BalanceMissing { asset_id: asset_id.clone() })
+}
+
+pub fn acquire_asset_flow(chain: Chain) -> BsvHomeAcquireAssetFlow {
+    if chain.is_testnet() {
+        return BsvHomeAcquireAssetFlow::Receive;
+    }
+    match chain {
+        Chain::Tron => BsvHomeAcquireAssetFlow::Options,
+        _ => BsvHomeAcquireAssetFlow::Fiat,
+    }
+}
+
+pub fn is_insufficient_network_fee(fee_asset_id: &AssetId, fee_available: &BsvHomeBigUint) -> bool {
+    match fee_asset_id.chain.chain_type() {
+        ChainType::Tron | ChainType::HyperCore => false,
+        ChainType::Ethereum
+        | ChainType::Bitcoin
+        | ChainType::Solana
+        | ChainType::Cosmos
+        | ChainType::Ton
+        | ChainType::Aptos
+        | ChainType::Sui
+        | ChainType::Xrp
+        | ChainType::Near
+        | ChainType::Stellar
+        | ChainType::Algorand
+        | ChainType::Polkadot
+        | ChainType::Cardano => fee_asset_id.is_native() && *fee_available == BsvHomeBigUint::ZERO,
+    }
+}
+
+impl SendInput {
+    pub(super) fn pending_transactions(&self, hashes: &[String], transactions: &[BsvHomeSignedTransaction]) -> Result<Vec<Transaction>, BsvHomeConfirmError> {
+        let chain = self.confirm.input.transfer.input_type.get_asset().chain();
+        let sender = self
+            .wallet
+            .account(chain)
+            .map(|account| account.address.clone())
+            .ok_or_else(|| BsvHomeConfirmError::Record {
+                msg: format!("wallet has no {chain} account"),
+            })?;
+        hashes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, hash)| {
+                let transaction_type = transactions.get(index)?.transaction_type.clone();
+                Some(
+                    BsvHomePendingTransactionInput {
+                        sender: sender.clone(),
+                        transfer: self.confirm.input.transfer.clone(),
+                        value: self.value.clone(),
+                        transaction_type,
+                        hash: hash.clone(),
+                        fee: self.confirm.fee.clone(),
+                        network_fee: self.network_fee.clone(),
+                        metadata: self.confirm.metadata.clone(),
+                        simulation: self.simulation.clone(),
+                        transaction_index: index as u32,
+                        transaction_count: transactions.len() as u32,
+                    }
+                    .pending_transaction()
+                    .map_err(|msg| BsvHomeConfirmError::Record { msg }),
+                )
+            })
+            .map(|result| result.map(|transaction| transaction.into_iter()))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|transactions| transactions.into_iter().flatten().collect())
+    }
+}
+
+pub(super) fn broadcast_delay_milliseconds(chain: Chain) -> u64 {
+    match chain.chain_type() {
+        ChainType::Ethereum | ChainType::HyperCore => 0,
+        ChainType::Solana
+        | ChainType::Bitcoin
+        | ChainType::Cosmos
+        | ChainType::Ton
+        | ChainType::Tron
+        | ChainType::Aptos
+        | ChainType::Sui
+        | ChainType::Near
+        | ChainType::Stellar
+        | ChainType::Algorand
+        | ChainType::Xrp
+        | ChainType::Polkadot
+        | ChainType::Cardano => 500,
+    }
+}
+
+pub(super) fn validate_scan(scan: Option<&ScanTransaction>, memo: Option<&str>, symbol: &str) -> Result<(), BsvHomeConfirmError> {
+    let Some(scan) = scan else {
+        return Ok(());
+    };
+    if scan.is_malicious == Some(true) {
+        return Err(BsvHomeConfirmError::ScanMalicious);
+    }
+    if scan.is_memo_required == Some(true) && memo.unwrap_or_default().trim().is_empty() {
+        return Err(BsvHomeConfirmError::ScanMemoRequired { symbol: symbol.to_string() });
+    }
+    Ok(())
+}
+
+pub(super) fn scan_payload(input: BsvHomeTransactionPreloadInput) -> ScanTransactionPayload {
+    let input: TransactionPreloadInput = input.into();
+    ScanTransactionPayload {
+        origin: ScanAddressTarget {
+            asset_id: input.input_type.get_asset().id.clone(),
+            address: input.sender_address.clone(),
+        },
+        target: ScanAddressTarget {
+            asset_id: input.input_type.get_recipient_asset().id.clone(),
+            address: input.destination_address.clone(),
+        },
+        website: input.get_website(),
+        transaction_type: input.input_type.transaction_type(),
+    }
+}
+
+fn fee_rate_rows(chain: Chain, fee_asset: &Asset, rates: &[BsvHomeFeeRate], selection: &BsvHomeConfirmFeeSelection, loaded_fee: &BsvHomeTransactionLoadFee) -> BsvHomeFeeRateRows {
+    let unit_value = |rate: &BsvHomeFeeRate| rate.gas_price_type.clone().total_fee();
+    let rate_total = |priority: FeePriority| rates.iter().find(|rate| rate.priority == priority).map(unit_value);
+    let selected_total = match selection {
+        BsvHomeConfirmFeeSelection::Priority { priority } => rate_total(*priority),
+        BsvHomeConfirmFeeSelection::Custom { gas_price } => Some(gas_price.clone()),
+    };
+    let base = selected_total.clone().filter(|total| total > &BigInt::ZERO);
+    let fixed_fee = loaded_fee.options.total();
+    let rate_fee = &loaded_fee.fee - &fixed_fee;
+    let unit_type = chain.fee_unit_type();
+    BsvHomeFeeRateRows {
+        rows: rates
+            .iter()
+            .map(|rate| {
+                let unit_value = unit_value(rate);
+                BsvHomeFeeRateRow {
+                    priority: rate.priority,
+                    fee: base.as_ref().map(|base| &rate_fee * &unit_value / base + &fixed_fee),
+                    unit_value,
+                }
+            })
+            .collect(),
+        unit_type,
+        unit_decimals: match unit_type {
+            FeeUnitType::Native => fee_asset.decimals as u32,
+            FeeUnitType::SatVb | FeeUnitType::SatKb | FeeUnitType::Gwei => unit_type.decimals(),
+        },
+        supports_custom_fee: custom_fee_enabled(chain) && rates.len() > 1,
+        selected_total,
+        normal_total: rate_total(FeePriority::Normal).or_else(|| rates.first().map(unit_value)),
+    }
+}
+
+pub(super) fn displayed_fee_rates(rates: Vec<BsvHomeFeeRate>) -> Vec<BsvHomeFeeRate> {
+    let mut rates = rates;
+    rates.sort_by_key(|rate| match rate.priority {
+        FeePriority::Normal => 0,
+        FeePriority::Fast => 1,
+    });
+    rates
+}
+
+impl BsvHomeConfirmFeeSelection {
+    pub(super) fn select_fee_rate(&self, rates: &[BsvHomeFeeRate]) -> Result<BsvHomeFeeRate, BsvHomeConfirmError> {
+        match self {
+            Self::Priority { priority } => rates
+                .iter()
+                .find(|rate| &rate.priority == priority)
+                .or_else(|| rates.first())
+                .cloned()
+                .ok_or(BsvHomeConfirmError::FeeRatesMissing),
+            Self::Custom { gas_price } => {
+                let base = rates
+                    .iter()
+                    .find(|rate| rate.priority == FeePriority::Normal)
+                    .or_else(|| rates.first())
+                    .ok_or(BsvHomeConfirmError::FeeRatesMissing)?;
+                Ok(BsvHomeFeeRate {
+                    priority: base.priority,
+                    gas_price_type: base.gas_price_type.custom(gas_price.clone()),
+                })
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::model::BsvHomeConfirmData;
+    use super::super::testkit::confirm_data;
+    use super::*;
+    use crate::models::custom_types::BsvHomeBigInt;
+    use crate::models::custom_types::BsvHomeBigUint;
+    use crate::models::transaction::{BsvHomeFeeOptions, BsvHomeTransactionLoadMetadata};
+    use crate::services::transfer::BsvHomeTransferData;
+    use crate::transfer_amount::BsvHomeTransferAmount;
+    use num_bigint::BigInt;
+    use num_bigint::BigUint;
+    use primitives::FeeOption;
+    use primitives::GasPriceType;
+    use primitives::{
+        Account, ApplicationMetadata, Asset, PerpetualConfirmData, PerpetualDirection, PerpetualType, SimulationSeverity, SimulationWarning, StakeType, SwapProvider,
+        TransactionType, TransferDataExtra, TransferDataOutputAction, Wallet, WalletId,
+        swap::{ApprovalData, SwapData},
+    };
+    use primitives::{AddressName, AddressType, VerificationStatus};
+    use std::collections::HashMap;
+
+    fn wallet(chain: Chain) -> Wallet {
+        Wallet {
+            id: WalletId::Multicoin("wallet".to_string()),
+            ..Wallet::mock_with_accounts(vec![Account::mock(chain, "sender")])
+        }
+    }
+
+    fn send_input(chain: Chain, input_type: TransactionInputType) -> SendInput {
+        send_input_from(chain, input_type, "sender")
+    }
+
+    fn send_input_from(chain: Chain, input_type: TransactionInputType, from: &str) -> SendInput {
+        SendInput {
+            wallet: wallet(chain),
+            confirm: confirm_data(chain, input_type, from),
+            value: BigInt::from(9),
+            network_fee: BigInt::from(1),
+            simulation: None,
+        }
+    }
+
+    #[test]
+    fn test_signer_input_uses_wallet_account_and_network_fee() {
+        let input = send_input(Chain::Solana, TransactionInputType::Transfer { asset: Asset::mock_sol() });
+
+        let signer_input = input.signer_input().unwrap();
+
+        assert_eq!(signer_input.input.sender_address, "sender");
+        assert_eq!(signer_input.input.destination_address, "recipient");
+        assert_eq!(signer_input.input.value, BigUint::from(9u64));
+        assert_eq!(signer_input.input.memo.as_deref(), Some("memo"));
+        assert!(signer_input.input.is_max_value);
+        assert_eq!(signer_input.fee.fee, BigInt::from(1));
+        assert_eq!(signer_input.fee.gas_limit, BigInt::from(21_000));
+    }
+
+    #[test]
+    fn test_signer_input_refuses_to_sign_for_an_address_the_transaction_was_not_priced_for() {
+        let matching = send_input_from(Chain::Solana, TransactionInputType::Transfer { asset: Asset::mock_sol() }, "sender");
+        assert!(matching.signer_input().is_ok());
+
+        let switched = send_input_from(Chain::Solana, TransactionInputType::Transfer { asset: Asset::mock_sol() }, "other");
+
+        assert!(matches!(
+            switched.signer_input().unwrap_err(),
+            BsvHomeConfirmError::SenderMismatch { from, signer } if from == "other" && signer == "sender"
+        ));
+    }
+
+    #[test]
+    fn test_signer_input_requires_account_for_chain() {
+        let input = send_input(Chain::Ethereum, TransactionInputType::Transfer { asset: Asset::mock_sol() });
+
+        match input.signer_input() {
+            Err(BsvHomeConfirmError::AccountMissing { chain: Chain::Solana }) => {}
+            result => panic!("expected a missing account error, got {result:?}"),
+        }
+    }
+
+    #[test]
+    fn test_only_a_token_approve_input_can_sign_a_token_approval() {
+        let approval = TransactionInputType::TokenApprove {
+            asset: Asset::mock_sol(),
+            approval_data: ApprovalData::mock(),
+        };
+        let signed = |transaction_type: TransactionType| {
+            vec![BsvHomeSignedTransaction {
+                data: "signed".to_string(),
+                transaction_type,
+            }]
+        };
+
+        assert!(approval.validate_approvals(&signed(TransactionType::TokenApproval)).is_ok());
+
+        let transfer = TransactionInputType::Transfer { asset: Asset::mock_sol() };
+        assert!(transfer.validate_approvals(&signed(TransactionType::Transfer)).is_ok());
+        match transfer.validate_approvals(&signed(TransactionType::TokenApproval)) {
+            Err(BsvHomeConfirmError::ApprovalInvalid { .. }) => {}
+            result => panic!("expected an invalid approval error, got {result:?}"),
+        }
+    }
+
+    #[test]
+    fn test_output_action_only_generic_transfers_can_sign() {
+        let generic = TransactionInputType::Generic {
+            asset: Asset::mock_sol(),
+            metadata: ApplicationMetadata::mock(),
+            extra: TransferDataExtra {
+                output_action: TransferDataOutputAction::Sign,
+                ..TransferDataExtra::mock()
+            },
+        };
+
+        assert_eq!(generic.output().output_action, TransferDataOutputAction::Sign);
+        assert_eq!(
+            (TransactionInputType::Transfer { asset: Asset::mock_sol() }).output().output_action,
+            TransferDataOutputAction::Send
+        );
+    }
+    fn rate(priority: FeePriority, gas_price: &str) -> BsvHomeFeeRate {
+        BsvHomeFeeRate {
+            priority,
+            gas_price_type: GasPriceType::Regular {
+                gas_price: gas_price.parse().unwrap(),
+            },
+        }
+    }
+
+    fn loaded_fee(fee: u64, options: HashMap<FeeOption, BigInt>) -> BsvHomeTransactionLoadFee {
+        BsvHomeTransactionLoadFee {
+            fee: BigInt::from(fee),
+            gas_price_type: GasPriceType::Regular { gas_price: BigInt::from(1) },
+            gas_limit: BigInt::from(1),
+            options: BsvHomeFeeOptions { options },
+            fee_asset: AssetId::from_chain(Chain::Ethereum),
+        }
+    }
+
+    #[test]
+    fn test_fee_rate_rows_scale_the_loaded_fee_by_each_rate() {
+        let rates = vec![rate(FeePriority::Normal, "10"), rate(FeePriority::Fast, "25")];
+        let ethereum = Asset::from_chain(Chain::Ethereum);
+        let normal = BsvHomeConfirmFeeSelection::Priority { priority: FeePriority::Normal };
+
+        let rows = fee_rate_rows(Chain::Ethereum, &ethereum, &rates, &normal, &loaded_fee(1_000, HashMap::new()));
+        assert_eq!(rows.rows[0].fee, Some(BigInt::from(1_000)), "the selected rate shows the fee that was loaded");
+        assert_eq!(rows.rows[1].fee, Some(BigInt::from(2_500)), "another rate scales the loaded fee by its unit value");
+        assert_eq!((rows.unit_type, rows.unit_decimals), (FeeUnitType::Gwei, 9));
+        assert!(!rows.supports_custom_fee, "only bitcoin chains take a custom rate");
+        assert_eq!(rows.selected_total, Some(BigInt::from(10)));
+        assert_eq!(rows.normal_total, Some(BigInt::from(10)));
+
+        let custom = fee_rate_rows(
+            Chain::Ethereum,
+            &ethereum,
+            &rates,
+            &BsvHomeConfirmFeeSelection::Custom { gas_price: BigInt::from(50) },
+            &loaded_fee(5_000, HashMap::new()),
+        );
+        assert_eq!(custom.rows[0].fee, Some(BigInt::from(1_000)), "a custom rate is the base the loaded fee was computed for");
+        assert_eq!(custom.selected_total, Some(BigInt::from(50)));
+
+        let zero = fee_rate_rows(
+            Chain::Ethereum,
+            &ethereum,
+            &rates,
+            &BsvHomeConfirmFeeSelection::Custom { gas_price: BigInt::ZERO },
+            &loaded_fee(5_000, HashMap::new()),
+        );
+        assert!(zero.rows.iter().all(|row| row.fee.is_none()), "nothing scales against a zero base");
+
+        let bitcoin = Asset::from_chain(Chain::Bitcoin);
+        assert!(fee_rate_rows(Chain::Bitcoin, &bitcoin, &rates, &normal, &loaded_fee(5_000, HashMap::new())).supports_custom_fee);
+        assert!(
+            !fee_rate_rows(Chain::Bitcoin, &bitcoin, &rates[..1], &normal, &loaded_fee(5_000, HashMap::new())).supports_custom_fee,
+            "one rate is nothing to pick a custom value against"
+        );
+
+        let solana = Asset::from_chain(Chain::Solana);
+        let native = fee_rate_rows(Chain::Solana, &solana, &rates[..1], &normal, &loaded_fee(5_000, HashMap::new()));
+        assert_eq!((native.unit_type, native.unit_decimals), (FeeUnitType::Native, solana.decimals as u32));
+    }
+
+    #[test]
+    fn test_fee_rate_rows_keep_fixed_options_out_of_the_scaling() {
+        let rates = vec![rate(FeePriority::Normal, "10000"), rate(FeePriority::Fast, "20000")];
+        let solana = Asset::from_chain(Chain::Solana);
+        let rent = BigInt::from(2_039_280u64);
+        let loaded = loaded_fee(2_049_280, HashMap::from([(FeeOption::TokenAccountCreation, rent.clone())]));
+
+        let rows = fee_rate_rows(
+            Chain::Solana,
+            &solana,
+            &rates,
+            &BsvHomeConfirmFeeSelection::Priority { priority: FeePriority::Normal },
+            &loaded,
+        );
+        assert_eq!(rows.rows[0].fee, Some(loaded.fee.clone()), "the selected rate shows the fee that was loaded");
+        assert_eq!(rows.rows[1].fee, Some(BigInt::from(20_000) + &rent), "the rent does not grow with the priority");
+
+        let fast = fee_rate_rows(
+            Chain::Solana,
+            &solana,
+            &rates,
+            &BsvHomeConfirmFeeSelection::Priority { priority: FeePriority::Fast },
+            &loaded_fee(2_059_280, HashMap::from([(FeeOption::TokenAccountCreation, rent.clone())])),
+        );
+        assert_eq!(fast.rows[0].fee, Some(BigInt::from(10_000) + &rent), "the rent does not shrink with the priority either");
+    }
+
+    #[test]
+    fn test_displayed_fee_rates_list_normal_before_fast() {
+        let rates = displayed_fee_rates(vec![rate(FeePriority::Fast, "20"), rate(FeePriority::Normal, "10")]);
+        assert_eq!(rates.iter().map(|rate| rate.priority).collect::<Vec<_>>(), vec![FeePriority::Normal, FeePriority::Fast]);
+    }
+
+    #[test]
+    fn test_select_fee_rate() {
+        let rates = vec![rate(FeePriority::Normal, "10"), rate(FeePriority::Fast, "20")];
+
+        let fast = (BsvHomeConfirmFeeSelection::Priority { priority: FeePriority::Fast }).select_fee_rate(&rates).unwrap();
+        assert_eq!(fast.priority, FeePriority::Fast);
+
+        let fallback = (BsvHomeConfirmFeeSelection::Priority { priority: FeePriority::Normal })
+            .select_fee_rate(&[rate(FeePriority::Fast, "20")])
+            .unwrap();
+        assert_eq!(fallback.priority, FeePriority::Fast);
+
+        let custom = (BsvHomeConfirmFeeSelection::Custom { gas_price: BigInt::from(33) }).select_fee_rate(&rates).unwrap();
+        assert_eq!(custom.priority, FeePriority::Normal);
+        match custom.gas_price_type {
+            GasPriceType::Regular { gas_price } => assert_eq!(gas_price, BigInt::from(33)),
+            gas_price_type => panic!("expected a regular custom gas price, got {gas_price_type:?}"),
+        }
+
+        match (BsvHomeConfirmFeeSelection::Priority { priority: FeePriority::Normal }).select_fee_rate(&[]) {
+            Err(BsvHomeConfirmError::FeeRatesMissing) => {}
+            result => panic!("expected missing fee rates, got {result:?}"),
+        }
+    }
+
+    #[test]
+    fn test_select_fee_rate_custom() {
+        let eip1559 = BsvHomeFeeRate {
+            priority: FeePriority::Normal,
+            gas_price_type: GasPriceType::Eip1559 {
+                gas_price: BigInt::from(20),
+                priority_fee: BigInt::from(5),
+            },
+        };
+        let rates = vec![rate(FeePriority::Fast, "1"), eip1559];
+
+        let raised = (BsvHomeConfirmFeeSelection::Custom { gas_price: BigInt::from(30) }).select_fee_rate(&rates).unwrap();
+        assert_eq!(raised.priority, FeePriority::Normal);
+        match raised.gas_price_type {
+            GasPriceType::Eip1559 { gas_price, priority_fee } => assert_eq!((gas_price, priority_fee), (BigInt::from(25), BigInt::from(5))),
+            gas_price_type => panic!("expected an eip1559 custom gas price, got {gas_price_type:?}"),
+        }
+
+        let capped = (BsvHomeConfirmFeeSelection::Custom { gas_price: BigInt::from(3) }).select_fee_rate(&rates).unwrap();
+        match capped.gas_price_type {
+            GasPriceType::Eip1559 { gas_price, priority_fee } => assert_eq!((gas_price, priority_fee), (BigInt::from(0), BigInt::from(3))),
+            gas_price_type => panic!("expected a capped eip1559 gas price, got {gas_price_type:?}"),
+        }
+
+        let without_normal = (BsvHomeConfirmFeeSelection::Custom { gas_price: BigInt::from(4) })
+            .select_fee_rate(&[rate(FeePriority::Fast, "9")])
+            .unwrap();
+        assert_eq!(without_normal.priority, FeePriority::Fast);
+        match without_normal.gas_price_type {
+            GasPriceType::Regular { gas_price } => assert_eq!(gas_price, BigInt::from(4)),
+            gas_price_type => panic!("expected a regular custom gas price, got {gas_price_type:?}"),
+        }
+
+        match (BsvHomeConfirmFeeSelection::Custom { gas_price: BigInt::from(1) }).select_fee_rate(&[]) {
+            Err(BsvHomeConfirmError::FeeRatesMissing) => {}
+            result => panic!("expected missing fee rates, got {result:?}"),
+        }
+    }
+
+    #[test]
+    fn test_a_custom_gas_price_carries_a_big_integer_so_a_malformed_one_cannot_read_as_zero() {
+        let rates = vec![rate(FeePriority::Normal, "10")];
+        let selection = BsvHomeConfirmFeeSelection::Custom {
+            gas_price: BsvHomeBigInt::from(33),
+        };
+        match selection.select_fee_rate(&rates).unwrap().gas_price_type {
+            GasPriceType::Regular { gas_price } => assert_eq!(gas_price, BigInt::from(33)),
+            gas_price_type => panic!("expected a regular custom gas price, got {gas_price_type:?}"),
+        }
+    }
+
+    #[test]
+    fn test_validate_simulation() {
+        let input = |chain, source| TransactionInputType::Generic {
+            asset: Asset::from_chain(chain),
+            metadata: ApplicationMetadata {
+                source,
+                ..ApplicationMetadata::mock()
+            },
+            extra: TransferDataExtra::mock(),
+        };
+        for chain in [Chain::Solana, Chain::Ethereum, Chain::Sui] {
+            let payment = input(chain, ApplicationMetadataSource::Payment);
+            let wallet_connect = input(chain, ApplicationMetadataSource::WalletConnect);
+            for warning in [
+                SimulationWarning::execution_error("InstructionError"),
+                SimulationWarning::validation_error("Invalid transaction"),
+            ] {
+                let message = warning.message.clone().unwrap();
+                let simulation = SimulationResult::new(vec![warning], vec![]);
+                assert_eq!(payment.validate_simulation(&simulation).map_err(|error| error.to_string()), Err(message));
+                assert!(wallet_connect.validate_simulation(&simulation).is_ok());
+            }
+            assert!(payment.validate_simulation(&SimulationResult::default()).is_ok());
+            let simulation = |warning| SimulationResult::new(vec![SimulationWarning::new(SimulationSeverity::Warning, warning, None)], vec![]);
+            assert!(payment.validate_simulation(&simulation(SimulationWarningType::SuspiciousSpender)).is_ok());
+            assert_eq!(
+                payment
+                    .validate_simulation(&simulation(SimulationWarningType::ValidationError))
+                    .map_err(|error| error.to_string()),
+                Err("Payment simulation failed".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn test_broadcast_policy() {
+        let transfer = TransactionInputType::Transfer { asset: Asset::mock_sol() };
+        let swap = TransactionInputType::Swap {
+            from_asset: Asset::mock_sol(),
+            to_asset: Asset::mock_spl_token(),
+            swap_data: SwapData::mock(),
+        };
+        for (chain, source, skip_preflight) in [
+            (Chain::Solana, ApplicationMetadataSource::Payment, false),
+            (Chain::Solana, ApplicationMetadataSource::WalletConnect, true),
+            (Chain::Ethereum, ApplicationMetadataSource::Payment, false),
+            (Chain::Ethereum, ApplicationMetadataSource::WalletConnect, false),
+            (Chain::Sui, ApplicationMetadataSource::Payment, false),
+            (Chain::Sui, ApplicationMetadataSource::WalletConnect, false),
+        ] {
+            let input = TransactionInputType::Generic {
+                asset: Asset::from_chain(chain),
+                metadata: ApplicationMetadata {
+                    source,
+                    ..ApplicationMetadata::mock()
+                },
+                extra: TransferDataExtra::mock(),
+            };
+            assert_eq!(input.broadcast_options().skip_preflight, skip_preflight, "{chain}: {source:?}");
+        }
+
+        let approve = TransactionInputType::TokenApprove {
+            asset: Asset::mock_sol(),
+            approval_data: ApprovalData::mock(),
+        };
+        let stake = TransactionInputType::Stake {
+            asset: Asset::mock_sol(),
+            stake_type: StakeType::Rewards(vec![]),
+        };
+        let perpetual = TransactionInputType::Perpetual {
+            asset: Asset::mock_sol(),
+            perpetual_type: PerpetualType::Open {
+                data: PerpetualConfirmData::mock(PerpetualDirection::Long, 0, None, None),
+            },
+        };
+        let ethereum_swap = TransactionInputType::Swap {
+            from_asset: Asset::mock(),
+            to_asset: Asset::mock_erc20(),
+            swap_data: SwapData::mock(),
+        };
+
+        assert!(swap.broadcast_options().skip_preflight);
+        assert!(!transfer.broadcast_options().skip_preflight);
+        assert!(!approve.broadcast_options().skip_preflight);
+        assert!(!stake.broadcast_options().skip_preflight);
+        assert!(!perpetual.broadcast_options().skip_preflight);
+        assert!(!ethereum_swap.broadcast_options().skip_preflight);
+
+        assert_eq!(broadcast_delay_milliseconds(Chain::Ethereum), 0);
+        assert_eq!(broadcast_delay_milliseconds(Chain::HyperCore), 0);
+        assert_eq!(broadcast_delay_milliseconds(Chain::Solana), 500);
+        assert_eq!(broadcast_delay_milliseconds(Chain::Bitcoin), 500);
+        assert_eq!(broadcast_delay_milliseconds(Chain::Polygon), 0);
+    }
+
+    #[test]
+    fn test_scan_payload_covers_every_input_type() {
+        let swap = BsvHomeTransactionPreloadInput {
+            input_type: TransactionInputType::Swap {
+                from_asset: Asset::mock_sol(),
+                to_asset: Asset::mock_spl_token(),
+                swap_data: SwapData::mock(),
+            },
+            sender_address: "sender".to_string(),
+            destination_address: "router".to_string(),
+            references: vec![],
+        };
+        let payload = scan_payload(swap);
+        assert_eq!(payload.transaction_type, TransactionType::Swap);
+        assert_eq!(payload.origin.asset_id, Asset::mock_sol().id);
+        assert_eq!(payload.target.asset_id, Asset::mock_spl_token().id);
+        assert_eq!(payload.target.address, "router");
+        assert_eq!(payload.website, None);
+
+        let generic = BsvHomeTransactionPreloadInput {
+            input_type: TransactionInputType::Generic {
+                asset: Asset::mock_sol(),
+                metadata: ApplicationMetadata::mock(),
+                extra: TransferDataExtra::mock(),
+            },
+            sender_address: "sender".to_string(),
+            destination_address: "contract".to_string(),
+            references: vec![],
+        };
+        let payload = scan_payload(generic);
+        assert_eq!(payload.transaction_type, TransferDataExtra::mock().transaction_type);
+        assert_eq!(payload.website, Some(ApplicationMetadata::mock().url));
+    }
+
+    #[test]
+    fn test_simulation_payload_only_for_utf8_payment_calls() {
+        let mut extra = TransferDataExtra::mock();
+        extra.data = Some(b"0xdeadbeef".to_vec());
+        let mut metadata = ApplicationMetadata::mock();
+        metadata.source = ApplicationMetadataSource::Payment;
+        let generic = |metadata: ApplicationMetadata, extra: TransferDataExtra| TransactionInputType::Generic {
+            asset: Asset::mock_sol(),
+            metadata,
+            extra,
+        };
+
+        assert_eq!(generic(metadata.clone(), extra.clone()).simulation_payload(), Some("0xdeadbeef".to_string()));
+
+        let mut wallet_connect = metadata.clone();
+        wallet_connect.source = ApplicationMetadataSource::WalletConnect;
+        assert_eq!(generic(wallet_connect, extra.clone()).simulation_payload(), None);
+
+        let mut binary = extra.clone();
+        binary.data = Some(vec![0xff, 0xfe]);
+        assert_eq!(generic(metadata.clone(), binary).simulation_payload(), None);
+
+        let mut empty = extra;
+        empty.data = None;
+        assert_eq!(generic(metadata, empty).simulation_payload(), None);
+
+        let swap = TransactionInputType::Swap {
+            from_asset: Asset::mock_sol(),
+            to_asset: Asset::mock_spl_token(),
+            swap_data: SwapData::mock(),
+        };
+        assert_eq!(swap.simulation_payload(), None);
+    }
+
+    #[test]
+    fn test_pending_transactions_follow_broadcast_hashes() {
+        let wallet = primitives::Wallet {
+            id: primitives::WalletId::Multicoin("wallet".to_string()),
+            external_id: None,
+            name: "wallet".to_string(),
+            index: 0,
+            wallet_type: primitives::WalletType::Multicoin,
+            accounts: vec![Account {
+                chain: Chain::Solana,
+                address: "sender".to_string(),
+                derivation_path: String::new(),
+                extended_public_key: None,
+            }],
+            is_pinned: false,
+            image_url: None,
+            source: primitives::WalletSource::Import,
+        };
+        let input = SendInput {
+            wallet: wallet.clone(),
+            confirm: BsvHomeConfirmData {
+                input: BsvHomeConfirmInput {
+                    from: Account::mock(Chain::Solana, "sender"),
+                    transfer: BsvHomeTransferData {
+                        input_type: TransactionInputType::Transfer { asset: Asset::mock_sol() },
+                        recipient: crate::services::transfer::BsvHomeRecipient {
+                            address: "recipient".to_string(),
+                            name: None,
+                            memo: None,
+                            references: vec![],
+                        },
+                        value: BigInt::from(10),
+                        use_max_amount: false,
+                    },
+                },
+                fee: primitives::TransactionFee::new_from_fee(BigInt::from(1), AssetId::from_chain(Chain::Solana)).into(),
+                selected_priority: FeePriority::Normal,
+                fee_rates: vec![],
+                metadata: BsvHomeTransactionLoadMetadata::None,
+                simulation: None,
+            },
+            value: BigInt::from(10),
+            network_fee: BigInt::from(1),
+            simulation: None,
+        };
+        let signed = vec![BsvHomeSignedTransaction {
+            data: "signed".to_string(),
+            transaction_type: primitives::TransactionType::Transfer,
+        }];
+        let transactions = input.pending_transactions(&["hash".to_string()], &signed).unwrap();
+        assert_eq!(transactions.len(), 1);
+        assert_eq!(transactions[0].id.hash, "hash");
+        assert_eq!(transactions[0].from, "sender");
+
+        let mut no_account = input.clone();
+        no_account.wallet.accounts.clear();
+        assert!(matches!(
+            no_account.pending_transactions(&["hash".to_string()], &signed),
+            Err(BsvHomeConfirmError::Record { .. })
+        ));
+    }
+
+    #[test]
+    fn test_acquire_asset_flow_receives_test_assets_without_fiat() {
+        assert_eq!(acquire_asset_flow(Chain::Tron), BsvHomeAcquireAssetFlow::Options);
+        assert_eq!(acquire_asset_flow(Chain::TronShasta), BsvHomeAcquireAssetFlow::Receive);
+        assert_eq!(acquire_asset_flow(Chain::Ethereum), BsvHomeAcquireAssetFlow::Fiat);
+    }
+
+    #[test]
+    fn test_default_fee_priority_is_fast_only_for_bitcoin_swaps() {
+        let bitcoin_swap = TransactionInputType::Swap {
+            from_asset: Asset::from_chain(Chain::Bitcoin),
+            to_asset: Asset::mock_sol(),
+            swap_data: SwapData::mock(),
+        };
+        assert_eq!(bitcoin_swap.default_fee_priority(), FeePriority::Fast);
+        let solana_swap = TransactionInputType::Swap {
+            from_asset: Asset::mock_sol(),
+            to_asset: Asset::mock_spl_token(),
+            swap_data: SwapData::mock(),
+        };
+        assert_eq!(solana_swap.default_fee_priority(), FeePriority::Normal);
+        assert_eq!(
+            (TransactionInputType::Transfer {
+                asset: Asset::from_chain(Chain::Bitcoin)
+            })
+            .default_fee_priority(),
+            FeePriority::Normal
+        );
+    }
+
+    #[test]
+    fn test_insufficient_network_fee_only_for_empty_native_balances() {
+        let empty = BsvHomeBigUint::ZERO;
+        let funded = BsvHomeBigUint::from(10u32);
+        assert!(is_insufficient_network_fee(&AssetId::from_chain(Chain::Ethereum), &empty));
+        assert!(!is_insufficient_network_fee(&AssetId::from_chain(Chain::Ethereum), &funded));
+        assert!(!is_insufficient_network_fee(&AssetId::from_chain(Chain::Tron), &empty));
+        assert!(!is_insufficient_network_fee(&AssetId::from_chain(Chain::TronShasta), &empty));
+        assert!(!is_insufficient_network_fee(&AssetId::from_chain(Chain::HyperCore), &empty));
+        assert!(!is_insufficient_network_fee(
+            &AssetId::from(Chain::Ethereum, Some("0xdac17f958d2ee523a2206206994597c13d831ec7".into())),
+            &empty
+        ));
+    }
+
+    #[test]
+    fn test_validate_scan() {
+        let safe = ScanTransaction {
+            is_malicious: Some(false),
+            is_memo_required: Some(false),
+            is_scan_complete: false,
+            malicious_addresses: None,
+            malicious_assets: None,
+            malicious_website: None,
+        };
+        let malicious = ScanTransaction {
+            is_malicious: Some(true),
+            is_memo_required: Some(false),
+            is_scan_complete: false,
+            malicious_addresses: None,
+            malicious_assets: None,
+            malicious_website: None,
+        };
+        let memo_required = ScanTransaction {
+            is_malicious: Some(false),
+            is_memo_required: Some(true),
+            is_scan_complete: false,
+            malicious_addresses: None,
+            malicious_assets: None,
+            malicious_website: None,
+        };
+
+        assert!(validate_scan(None, None, "USDT").is_ok());
+        assert!(validate_scan(Some(&safe), None, "USDT").is_ok());
+        assert!(validate_scan(Some(&memo_required), Some("deposit"), "USDT").is_ok());
+
+        match validate_scan(Some(&malicious), Some("memo"), "USDT") {
+            Err(BsvHomeConfirmError::ScanMalicious) => {}
+            result => panic!("expected a malicious verdict, got {result:?}"),
+        }
+        match validate_scan(Some(&memo_required), Some("  "), "USDT") {
+            Err(BsvHomeConfirmError::ScanMemoRequired { symbol }) => assert_eq!(symbol, "USDT"),
+            result => panic!("expected a required memo, got {result:?}"),
+        }
+    }
+
+    #[test]
+    fn test_a_fee_asset_with_no_available_balance_is_not_selectable() {
+        let funded = Asset::from_chain(Chain::Tempo);
+        let empty = Asset::from_chain(Chain::Ethereum);
+        let assets = vec![funded.clone(), empty.clone()];
+        let balances = vec![balance(&funded.id, 1), balance(&empty.id, 0)];
+
+        let selectable = selectable_fee_assets(assets, balances, vec![]);
+
+        assert_eq!(selectable.iter().map(|fee| fee.asset.id.clone()).collect::<Vec<_>>(), vec![funded.id]);
+    }
+
+    #[test]
+    fn test_a_max_amount_below_the_provider_minimum_reports_the_minimum_not_a_missing_balance() {
+        let chain = Chain::Solana;
+        let asset = Asset::from_chain(chain);
+        let mut swap_data = SwapData::mock_transfer(SwapProvider::NearIntents, "50200", "1000000", "deposit");
+        swap_data.quote.min_from_value = Some(num_bigint::BigUint::from(49_949u64));
+        let input_type = TransactionInputType::Swap {
+            from_asset: asset.clone(),
+            to_asset: Asset::from_chain(Chain::Bitcoin),
+            swap_data,
+        };
+        let mut data = send_input_from(chain, input_type, "sender").confirm;
+        data.input.transfer.use_max_amount = true;
+        data.input.transfer.value = BigInt::from(50_200);
+        data.fee.fee = BigInt::from(537);
+
+        let metadata = BsvHomeConfirmMetadata {
+            asset_balance: balance(&asset.id, 50_200),
+            fee_asset_balance: balance(&asset.id, 50_200),
+            prices: vec![],
+        };
+
+        match data.preload_amount(&metadata, &asset).unwrap() {
+            BsvHomeTransferAmountResult::Error {
+                error:
+                    BsvHomeConfirmError::BelowSwapMinimum {
+                        asset: error_asset,
+                        provider,
+                        provider_name,
+                        requirement,
+                    },
+            } => {
+                assert_eq!(error_asset, asset);
+                assert_eq!(provider, SwapProvider::NearIntents, "the sheet shows the icon of the provider that set the minimum");
+                assert_eq!(provider_name, "NEAR Intents", "the sheet names it");
+                assert_eq!(requirement.required, BigInt::from(49_949), "the minimum the provider asked for");
+                assert_eq!(requirement.available, BigInt::from(49_663), "what the balance can send once the fee is paid");
+                assert_eq!(requirement.shortfall, BigInt::from(286));
+            }
+            other => panic!("expected a below minimum value error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_preload_reports_the_amount_error_instead_of_failing_the_whole_preload() {
+        let chain = Chain::Solana;
+        let asset = Asset::from_chain(chain);
+        let mut data = send_input_from(chain, TransactionInputType::Transfer { asset: asset.clone() }, "sender").confirm;
+        data.input.transfer.use_max_amount = false;
+        data.input.transfer.value = BigInt::from(1_000);
+        data.fee.fee = BigInt::from(1);
+
+        let short = BsvHomeConfirmMetadata {
+            asset_balance: balance(&asset.id, 10),
+            fee_asset_balance: balance(&asset.id, 10),
+            prices: vec![],
+        };
+        let funded = BsvHomeConfirmMetadata {
+            asset_balance: balance(&asset.id, 2_000_000),
+            fee_asset_balance: balance(&asset.id, 2_000_000),
+            prices: vec![],
+        };
+
+        match data.preload_amount(&short, &asset).unwrap() {
+            BsvHomeTransferAmountResult::Error {
+                error: BsvHomeConfirmError::InsufficientBalance { asset: error_asset, requirement },
+            } => {
+                assert_eq!(error_asset, asset, "the error names the asset the screen shows, not just its id");
+                assert_eq!(requirement.required, BigInt::from(1_001));
+                assert_eq!(requirement.available, BigInt::from(10));
+                assert_eq!(requirement.shortfall, BigInt::from(991));
+            }
+            other => panic!("expected an insufficient balance error, got {other:?}"),
+        }
+        assert!(matches!(data.preload_amount(&funded, &asset).unwrap(), BsvHomeTransferAmountResult::Amount { .. }));
+    }
+
+    #[test]
+    fn test_only_a_token_approval_carries_an_approval_header_value() {
+        let asset = Asset::from_chain(Chain::Ethereum);
+        let approval = TransactionInputType::TokenApprove {
+            asset: asset.clone(),
+            approval_data: primitives::swap::ApprovalData {
+                token: String::new(),
+                spender: String::new(),
+                value: BsvHomeBigUint::from(42u32),
+                is_unlimited: true,
+            },
+        };
+
+        assert!(matches!(approval.approval_value(), Some((id, BsvHomeApprovalValue::Unlimited)) if id == asset.id));
+        assert!((TransactionInputType::Transfer { asset }).approval_value().is_none());
+        assert!(matches!(approval_value_from(Some(&BsvHomeBigUint::from(42u32)), false), BsvHomeApprovalValue::Exact { value } if value == BsvHomeBigUint::from(42u32)));
+        assert!(matches!(approval_value_from(Some(&BsvHomeBigUint::from(42u32)), true), BsvHomeApprovalValue::Unlimited));
+    }
+
+    fn balance(asset_id: &AssetId, available: u32) -> BsvHomeAssetBalance {
+        BsvHomeAssetBalance {
+            asset_id: asset_id.clone(),
+            available: BsvHomeBigUint::from(available),
+            frozen: BsvHomeBigUint::ZERO,
+            locked: BsvHomeBigUint::ZERO,
+            staked: BsvHomeBigUint::ZERO,
+            pending: BsvHomeBigUint::ZERO,
+            pending_unconfirmed: BsvHomeBigUint::ZERO,
+            rewards: BsvHomeBigUint::ZERO,
+            reserved: BsvHomeBigUint::ZERO,
+            withdrawable: BsvHomeBigUint::ZERO,
+            earn: BsvHomeBigUint::ZERO,
+            metadata: None,
+            is_active: true,
+        }
+    }
+
+    #[test]
+    fn test_metadata_asset_ids_keeps_one_entry_per_asset() {
+        let asset_id = AssetId::from_chain(Chain::Ethereum);
+        let fee_asset_id = AssetId::from_chain(Chain::Ethereum);
+        let extra = AssetId::from_chain(Chain::Bitcoin);
+
+        let asset_ids = metadata_asset_ids(&asset_id, &fee_asset_id, vec![extra.clone(), extra.clone(), asset_id.clone()]);
+
+        assert_eq!(asset_ids, vec![asset_id, extra]);
+    }
+
+    #[test]
+    fn test_balance_change_sign_follows_the_value() {
+        assert_eq!(balance_change_sign(&BigInt::from(750_000)), BsvHomeAmountSign::Incoming);
+        assert_eq!(balance_change_sign(&BigInt::from(-100_005_000)), BsvHomeAmountSign::Outgoing);
+        assert_eq!(balance_change_sign(&BigInt::ZERO), BsvHomeAmountSign::None);
+    }
+
+    #[test]
+    fn test_build_metadata_reads_each_balance_from_its_own_asset() {
+        let asset_id = AssetId::from_chain(Chain::Bitcoin);
+        let fee_asset_id = AssetId::from_chain(Chain::Ethereum);
+        let balances = vec![balance(&fee_asset_id, 7), balance(&asset_id, 3)];
+
+        let metadata = build_metadata(asset_id.clone(), fee_asset_id.clone(), balances, vec![]).unwrap();
+
+        assert_eq!(metadata.asset_balance.available, BsvHomeBigUint::from(3u32));
+        assert_eq!(metadata.fee_asset_balance.available, BsvHomeBigUint::from(7u32));
+    }
+
+    #[test]
+    fn test_build_metadata_rejects_a_missing_balance() {
+        let asset_id = AssetId::from_chain(Chain::Bitcoin);
+        let fee_asset_id = AssetId::from_chain(Chain::Ethereum);
+
+        match build_metadata(asset_id.clone(), fee_asset_id.clone(), vec![balance(&fee_asset_id, 7)], vec![]) {
+            Err(BsvHomeConfirmError::BalanceMissing { asset_id: missing }) => assert_eq!(missing, asset_id),
+            result => panic!("expected the asset balance to be required, got {result:?}"),
+        }
+        match build_metadata(asset_id.clone(), fee_asset_id.clone(), vec![balance(&asset_id, 3)], vec![]) {
+            Err(BsvHomeConfirmError::BalanceMissing { asset_id: missing }) => assert_eq!(missing, fee_asset_id),
+            result => panic!("expected the fee balance to be required, got {result:?}"),
+        }
+    }
+
+    #[test]
+    fn test_preload_simulation_is_only_needed_when_the_request_has_none() {
+        let simulation = |message: &str| SimulationResult {
+            warnings: vec![SimulationWarning::validation_error(message)],
+            balance_changes: vec![],
+            payload: vec![],
+            header: None,
+        };
+        let mut confirm_data = send_input(Chain::Ethereum, TransactionInputType::Transfer { asset: Asset::mock_sol() }).confirm;
+        confirm_data.simulation = Some(simulation("preload"));
+        let preload = BsvHomeConfirmPreload {
+            confirm_data,
+            amount: BsvHomeTransferAmountResult::Amount {
+                amount: BsvHomeTransferAmount {
+                    value: BsvHomeBigInt::from(1),
+                    network_fee: BsvHomeBigInt::from(1),
+                    is_max_amount: false,
+                },
+            },
+        };
+
+        assert!(
+            preload_simulation(Some(&simulation("request")), &preload).is_none(),
+            "the request simulation is already on the screen"
+        );
+        assert_eq!(preload_simulation(None, &preload).unwrap().warnings[0].message.as_deref(), Some("preload"));
+        let mut unsimulated = preload.clone();
+        unsimulated.confirm_data.simulation = None;
+        assert!(preload_simulation(None, &unsimulated).is_none());
+    }
+
+    #[test]
+    fn test_with_fee_takes_the_preload_and_keeps_the_rest_of_the_screen() {
+        let eth = Asset::mock_eth();
+        let btc = Asset::mock_btc();
+        let metadata = |available: u32| BsvHomeConfirmMetadata {
+            asset_balance: balance(&eth.id, available),
+            fee_asset_balance: balance(&eth.id, available),
+            prices: vec![],
+        };
+        let simulation_state = |warnings: Vec<SimulationWarning>| BsvHomeConfirmSimulationState {
+            warnings: crate::services::simulation::warning_rows(&warnings),
+            chain: Chain::Ethereum,
+            result: None,
+            simulation: None,
+            address_names: vec![],
+        };
+        let screen = BsvHomeConfirmLoad {
+            sender: Account::mock(Chain::Ethereum, "sender"),
+            fee_asset: eth.clone(),
+            metadata: metadata(1),
+            fee_assets: vec![BsvHomeFeeAsset {
+                asset: eth.clone(),
+                balance: balance(&eth.id, 1),
+                price: None,
+            }],
+            simulation: simulation_state(vec![]),
+            address_name: Some(AddressName::mock("0xrecipient", "recipient.eth", AddressType::Address, VerificationStatus::Verified)),
+            preload: None,
+        };
+        let fee = BsvHomeConfirmFeeLoad {
+            fee_asset: btc.clone(),
+            metadata: metadata(2),
+            preload: BsvHomeConfirmPreload {
+                confirm_data: send_input(Chain::Ethereum, TransactionInputType::Transfer { asset: eth.clone() }).confirm,
+                amount: BsvHomeTransferAmountResult::Amount {
+                    amount: BsvHomeTransferAmount {
+                        value: BsvHomeBigInt::from(1),
+                        network_fee: BsvHomeBigInt::from(1),
+                        is_max_amount: false,
+                    },
+                },
+            },
+        };
+
+        let loaded = screen.clone().with_fee(fee.clone(), None);
+        assert_eq!(loaded.fee_asset, btc);
+        assert_eq!(loaded.metadata.asset_balance.available, BsvHomeBigUint::from(2u32));
+        assert!(loaded.preload.is_some());
+        assert_eq!(loaded.fee_assets, screen.fee_assets, "the selectable fee assets come from the first answer");
+        assert_eq!(loaded.address_name, screen.address_name, "the recipient's name comes from the first answer");
+        assert!(loaded.simulation.warnings.is_empty(), "without a preload simulation the request simulation state stays");
+
+        let resimulated = screen.with_fee(fee, Some(simulation_state(vec![SimulationWarning::validation_error("preload")])));
+        assert_eq!(resimulated.simulation.warnings.len(), 1);
+    }
+}

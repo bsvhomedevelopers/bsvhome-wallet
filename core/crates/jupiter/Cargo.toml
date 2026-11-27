@@ -1,0 +1,15 @@
+[package]
+name = "jupiter"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+bsv_home_client = { path = "../bsv_home_client", features = ["reqwest"] }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+tokio = { workspace = true }
+async-trait = { workspace = true }

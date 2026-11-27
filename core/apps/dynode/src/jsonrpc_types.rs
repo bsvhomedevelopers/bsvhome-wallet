@@ -1,0 +1,310 @@
+use bsv_home_encoding::encode_base64_url;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JsonRpcCall {
+    pub jsonrpc: String,
+    pub method: String,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub params: Value,
+    pub id: u64,
+}
+
+impl JsonRpcCall {
+    pub fn cache_key(&self, host: &str, path: &str) -> String {
+        let base = format!("{}:POST:{}:{}", host, path, self.method);
+
+        if self.params.is_null() {
+            base
+        } else {
+            let params_str = serde_json::to_string(&self.params).unwrap_or_default();
+            format!("{}:{}", base, params_str)
+        }
+    }
+}
+
+fn default_jsonrpc_version() -> String {
+    "2.0".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JsonRpcResponse {
+    #[serde(default = "default_jsonrpc_version")]
+    pub jsonrpc: String,
+    pub result: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JsonRpcErrorResponse {
+    #[serde(default = "default_jsonrpc_version")]
+    pub jsonrpc: String,
+    pub error: JsonRpcError,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
+}
+
+impl JsonRpcErrorResponse {
+    pub fn new(message: &str) -> Self {
+        Self {
+            jsonrpc: default_jsonrpc_version(),
+            error: JsonRpcError {
+                code: -32603,
+                message: message.to_string(),
+            },
+            id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JsonRpcError {
+    pub code: i32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum JsonRpcResult {
+    Success(JsonRpcResponse),
+    Error(JsonRpcErrorResponse),
+}
+
+impl JsonRpcResult {
+    pub fn id(&self) -> Option<u64> {
+        match self {
+            JsonRpcResult::Success(success) => success.id,
+            JsonRpcResult::Error(error) => error.id,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum RequestType {
+    Regular { path: String, method: String, body: Vec<u8> },
+    JsonRpc(JsonRpcRequest),
+}
+
+#[derive(Debug, Clone)]
+pub enum JsonRpcRequest {
+    Single(JsonRpcCall),
+    Batch(Vec<JsonRpcCall>),
+}
+
+impl JsonRpcRequest {
+    pub fn get_methods_for_metrics(&self) -> Vec<String> {
+        match self {
+            Self::Single(call) => vec![call.method.clone()],
+            Self::Batch(calls) => calls.iter().map(|call| call.method.clone()).collect(),
+        }
+    }
+}
+
+impl RequestType {
+    pub fn from_request(method: &str, path: String, body: Vec<u8>) -> Self {
+        if method == "POST" {
+            if let Ok(call) = serde_json::from_slice::<JsonRpcCall>(&body) {
+                return RequestType::JsonRpc(JsonRpcRequest::Single(call));
+            }
+            if let Ok(calls) = serde_json::from_slice::<Vec<JsonRpcCall>>(&body)
+                && !calls.is_empty()
+            {
+                return RequestType::JsonRpc(JsonRpcRequest::Batch(calls));
+            }
+        }
+        RequestType::Regular {
+            path,
+            method: method.to_string(),
+            body,
+        }
+    }
+
+    pub fn get_methods_for_metrics(&self) -> Vec<String> {
+        match self {
+            Self::JsonRpc(json_rpc) => json_rpc.get_methods_for_metrics(),
+            Self::Regular { path, .. } => vec![path.clone()],
+        }
+    }
+
+    pub fn get_methods_list(&self) -> String {
+        self.get_methods_for_metrics().join(",")
+    }
+
+    pub fn cache_key(&self, host: &str) -> Option<String> {
+        match self {
+            Self::Regular { path, method, body } => Some(format!("{}:{}:{}:{}", host, method, path, encode_base64_url(body))),
+            Self::JsonRpc(_) => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_request_parsing_params_serialization() {
+        let body = br#"{"jsonrpc":"2.0","method":"getSlot","id":1}"#.to_vec();
+        let request_type = RequestType::from_request("POST", "/solana".to_string(), body);
+
+        match request_type {
+            RequestType::JsonRpc(JsonRpcRequest::Single(call)) => {
+                assert_eq!(call.method, "getSlot");
+                assert_eq!(call.params, Value::Null);
+                assert_eq!(
+                    serde_json::to_value(&call).unwrap(),
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": "getSlot",
+                        "id": 1
+                    })
+                );
+            }
+            _ => panic!("Expected JSON-RPC request"),
+        }
+
+        let body = br#"{"jsonrpc":"2.0","method":"getLatestBlockhash","params":[{"commitment":"confirmed"}],"id":1}"#.to_vec();
+        let request_type = RequestType::from_request("POST", "/solana".to_string(), body);
+
+        match request_type {
+            RequestType::JsonRpc(JsonRpcRequest::Single(call)) => {
+                assert_eq!(call.method, "getLatestBlockhash");
+                assert_eq!(call.params, json!([{ "commitment": "confirmed" }]));
+                assert_eq!(serde_json::to_value(&call).unwrap()["params"], json!([{ "commitment": "confirmed" }]));
+            }
+            _ => panic!("Expected JSON-RPC request"),
+        }
+    }
+
+    #[test]
+    fn test_batch_request_parsing() {
+        let batch_json = r#"[
+            {"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1},
+            {"jsonrpc":"2.0","method":"eth_getBalance","params":["0x123","latest"],"id":2}
+        ]"#;
+
+        let body = batch_json.as_bytes().to_vec();
+        let request_type = RequestType::from_request("POST", "/rpc".to_string(), body);
+
+        match request_type {
+            RequestType::JsonRpc(JsonRpcRequest::Batch(calls)) => {
+                assert_eq!(calls.len(), 2);
+                assert_eq!(calls[0].method, "eth_blockNumber");
+                assert_eq!(calls[0].id, 1);
+                assert_eq!(calls[1].method, "eth_getBalance");
+                assert_eq!(calls[1].id, 2);
+            }
+            _ => panic!("Expected batch request"),
+        }
+    }
+
+    #[test]
+    fn test_jsonrpc_call_cache_key() {
+        let call = JsonRpcCall::mock_with_params(1, "eth_getBalance", json!(["0x123", "latest"]));
+
+        let key = call.cache_key("example.com", "/rpc");
+        assert_eq!(key, "example.com:POST:/rpc:eth_getBalance:[\"0x123\",\"latest\"]");
+    }
+
+    #[test]
+    fn test_jsonrpc_result_id_extraction() {
+        let success = JsonRpcResult::Success(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: json!({"test": "value"}),
+            id: Some(123),
+        });
+
+        let error = JsonRpcResult::Error(JsonRpcErrorResponse {
+            jsonrpc: "2.0".to_string(),
+            error: JsonRpcError {
+                code: -32602,
+                message: "Invalid params".to_string(),
+            },
+            id: Some(456),
+        });
+
+        assert_eq!(success.id(), Some(123));
+        assert_eq!(error.id(), Some(456));
+    }
+
+    #[test]
+    fn test_jsonrpc_result_without_envelope() {
+        let response = r#"{
+            "result": {
+                "ledger_current_index": 105917398,
+                "status": "success"
+            },
+            "status": "success",
+            "type": "response"
+        }"#;
+
+        let result: JsonRpcResult = serde_json::from_str(response).unwrap();
+        let JsonRpcResult::Success(response) = result else {
+            panic!("Expected success response");
+        };
+
+        assert_eq!(response.jsonrpc, "2.0");
+        assert_eq!(response.id, None);
+        assert_eq!(response.result["ledger_current_index"], 105917398);
+    }
+
+    #[test]
+    fn test_solana_block_cleaned_up_error() {
+        let response = r#"{
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32001,
+                "message": "Block 370142484 cleaned up, does not exist on node. First available block: 388259953"
+            },
+            "id": 1
+        }"#;
+
+        let result: JsonRpcResult = serde_json::from_str(response).unwrap();
+
+        match result {
+            JsonRpcResult::Error(error_response) => {
+                assert_eq!(error_response.error.code, -32001);
+                assert!(error_response.error.message.contains("cleaned up"));
+                assert_eq!(error_response.id, Some(1));
+            }
+            _ => panic!("Expected error response"),
+        }
+    }
+
+    #[test]
+    fn test_regular_request_cache_key_with_different_bodies() {
+        let body1 = r#"{"type":"metaAndAssetCtxs"}"#.as_bytes().to_vec();
+        let body2 = r#"{"type":"spotMeta"}"#.as_bytes().to_vec();
+
+        let request1 = RequestType::Regular {
+            path: "/info".to_string(),
+            method: "POST".to_string(),
+            body: body1,
+        };
+
+        let request2 = RequestType::Regular {
+            path: "/info".to_string(),
+            method: "POST".to_string(),
+            body: body2,
+        };
+
+        let key1 = request1.cache_key("example.com").unwrap();
+        let key2 = request2.cache_key("example.com").unwrap();
+
+        assert_ne!(key1, key2, "Different request bodies should produce different cache keys");
+    }
+
+    #[test]
+    fn test_regular_request_cache_key_with_binary_bodies() {
+        let request = |body| RequestType::Regular {
+            path: "/sui.rpc.v2.TransactionExecutionService/SimulateTransaction".to_string(),
+            method: "POST".to_string(),
+            body,
+        };
+
+        assert_ne!(request(vec![0, 1, 255]).cache_key("example.com"), request(vec![0, 2, 255]).cache_key("example.com"));
+    }
+}

@@ -1,0 +1,49 @@
+mod error;
+mod permit2;
+pub use error::SwapperError;
+pub use permit2::permit2_data_to_eip712_json;
+use permit2::*;
+mod remote_types;
+use remote_types::*;
+type Swapper = swapper::swapper::BsvHomeSwapper;
+
+use crate::alien::{AlienProvider, AlienProviderWrapper, PreferencesNodeEndpoints, coalescing_provider};
+use crate::services::preferences::BsvHomePreferencesStore;
+use primitives::AssetId;
+use std::sync::Arc;
+
+#[derive(Debug, uniffi::Object)]
+pub struct BsvHomeSwapper {
+    inner: Swapper,
+}
+
+#[uniffi::export]
+impl BsvHomeSwapper {
+    #[uniffi::constructor]
+    pub fn new(rpc_provider: Arc<dyn AlienProvider>, preferences: Arc<dyn BsvHomePreferencesStore>) -> Self {
+        let rpc_provider = coalescing_provider(rpc_provider);
+        let endpoints = Arc::new(PreferencesNodeEndpoints::new(preferences));
+        Self {
+            inner: Swapper::new(Arc::new(AlienProviderWrapper::with_endpoints(rpc_provider, endpoints))),
+        }
+    }
+}
+
+impl BsvHomeSwapper {
+    pub async fn get_quote(&self, request: &SwapperQuoteRequest) -> Result<Vec<SwapperQuote>, SwapperError> {
+        self.inner.get_quote(request).await
+    }
+
+    pub fn supported_chains_for_from_asset(&self, asset_id: &AssetId) -> SwapperAssetList {
+        self.inner.supported_chains_for_from_asset(asset_id)
+    }
+    pub async fn preload_routes(&self, from_asset: AssetId, to_asset: AssetId) {
+        self.inner.preload_routes(&from_asset, &to_asset).await
+    }
+    pub async fn get_permit2_for_quote(&self, quote: &SwapperQuote) -> Result<Option<Permit2ApprovalData>, SwapperError> {
+        self.inner.get_permit2_for_quote(quote).await
+    }
+    pub async fn get_quote_data(&self, quote: &SwapperQuote, data: FetchQuoteData) -> Result<BsvHomeSwapQuoteData, SwapperError> {
+        self.inner.get_quote_data(quote, data).await
+    }
+}

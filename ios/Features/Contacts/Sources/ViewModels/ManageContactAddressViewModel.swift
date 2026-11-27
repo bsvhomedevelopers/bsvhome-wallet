@@ -1,0 +1,149 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import protocol BsvHomeCore.BsvHomeManageContactServiceProtocol
+import protocol BsvHomeCore.BsvHomeNameServiceProtocol
+import enum BsvHomeCore.BsvHomeRuntimeEnvironment
+import BsvHomeCorePrimitives
+import Localization
+import Primitives
+import PrimitivesComponents
+import Style
+import SwiftUI
+import Validators
+
+@Observable
+@MainActor
+public final class ManageContactAddressViewModel {
+    public enum Mode: Identifiable {
+        case add
+        case edit(ContactAddress)
+
+        public var id: String {
+            switch self {
+            case .add: "add"
+            case let .edit(address): address.id
+            }
+        }
+
+        var contactAddress: ContactAddress? {
+            switch self {
+            case .add: nil
+            case let .edit(address): address
+            }
+        }
+    }
+
+    public struct Input: Sendable {
+        public let chain: Chain
+        public let address: String
+        public let memo: String?
+        public let replacingId: String?
+    }
+
+    private let mode: Mode
+    private let service: any BsvHomeManageContactServiceProtocol
+    private let onComplete: (Input) -> Void
+
+    var addressInputModel: AddressInputViewModel
+    var memo: String = ""
+    var isPresentingScanner = false
+
+    public init(
+        service: any BsvHomeManageContactServiceProtocol,
+        nameService: any BsvHomeNameServiceProtocol,
+        mode: Mode,
+        onComplete: @escaping (Input) -> Void,
+    ) {
+        self.mode = mode
+        self.service = service
+        self.onComplete = onComplete
+        title = Localized.Common.address
+
+        addressInputModel = AddressInputViewModel(
+            chain: mode.contactAddress?.chain ?? service.defaultContactChain,
+            nameService: nameService,
+            placeholder: title,
+        )
+
+        if let address = mode.contactAddress {
+            addressInputModel.text = address.address
+            memo = address.memo ?? ""
+        }
+    }
+
+    let title: String
+    var buttonTitle: String {
+        Localized.Transfer.confirm
+    }
+
+    var networkTitle: String {
+        Localized.Transfer.network
+    }
+
+    var memoTitle: String {
+        Localized.Transfer.memo
+    }
+
+    var chain: Chain {
+        addressInputModel.chain
+    }
+
+    var showMemo: Bool {
+        chain.isMemoSupported
+    }
+
+    var networkSelectorModel: NetworkSelectorViewModel {
+        NetworkSelectorViewModel(
+            state: .data(.plain(availableChains)),
+            selectedItems: [chain],
+            selectionType: .checkmark,
+            title: networkTitle,
+        )
+    }
+
+    var buttonState: ButtonState {
+        availableChains.contains(chain) && addressInputModel.isValid ? .normal : .disabled
+    }
+
+    private var availableChains: [Chain] {
+        BsvHomeRuntimeEnvironment.current.availableChains().map { Chain(core: $0) }
+    }
+
+    private var input: Input {
+        Input(
+            chain: chain,
+            address: addressInputModel.resolvedAddress,
+            memo: memo,
+            replacingId: mode.contactAddress?.id,
+        )
+    }
+}
+
+// MARK: - Actions
+
+extension ManageContactAddressViewModel {
+    func onSelectChain(_ chain: Chain) {
+        guard availableChains.contains(chain) else { return }
+        addressInputModel.chain = chain
+        memo = ""
+    }
+
+    func onSelectScan() {
+        isPresentingScanner = true
+    }
+
+    func onHandleScan(_ result: String) {
+        let scan = service.scannedAddress(input: result)
+        addressInputModel.update(text: scan.address)
+        if let scannedMemo = scan.memo {
+            memo = scannedMemo
+        }
+    }
+
+    func complete() {
+        guard availableChains.contains(chain), addressInputModel.validate() else { return }
+        onComplete(input)
+    }
+}

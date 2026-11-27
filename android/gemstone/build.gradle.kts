@@ -1,0 +1,102 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    id("com.android.library")
+}
+
+val gemstoneRoot = rootProject.projectDir.resolve("../core/gemstone")
+val gemstoneSrc = gemstoneRoot.resolve("android/gemstone/src")
+val rustSrcDir = gemstoneRoot.resolve("src")
+val cratesDir = rootProject.projectDir.resolve("../core/crates")
+val jniLibsDir = gemstoneSrc.resolve("main/jniLibs")
+val generatedKotlinDir = gemstoneSrc.resolve("main/java")
+val cargoBuildFlag = if (System.getenv("BUILD_MODE") == "release") "--release" else null
+val defaultCargoNdkAbis = if (System.getenv("UNIT_TESTS") == "true") {
+    "x86_64"
+} else {
+    "arm64-v8a,armeabi-v7a"
+}
+val cargoNdkTargets = (System.getenv("GEMSTONE_ANDROID_ABIS") ?: defaultCargoNdkAbis)
+    .split(",")
+    .map { it.trim() }
+    .filter { it.isNotEmpty() }
+    .joinToString(" ") { "-t $it" }
+
+android {
+    namespace = "com.gemwallet.gemstone"
+    compileSdk = 37
+    ndkVersion = libs.versions.androidNdk.get()
+
+    defaultConfig {
+        minSdk = 28
+        consumerProguardFiles(gemstoneRoot.resolve("android/gemstone/consumer-rules.pro"))
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        getByName("main") {
+            kotlin {
+                directories.add(generatedKotlinDir.absolutePath)
+            }
+            jniLibs {
+                directories.add(jniLibsDir.absolutePath)
+            }
+            manifest.srcFile(gemstoneSrc.resolve("main/AndroidManifest.xml"))
+        }
+        getByName("androidTest") {
+            kotlin {
+                directories.add(gemstoneSrc.resolve("androidTest/java").absolutePath)
+            }
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+    }
+}
+
+val bindgenKotlin = tasks.register<Exec>("bindgenKotlin") {
+    description = "Generate Kotlin bindings from gemstone via uniffi"
+    workingDir = gemstoneRoot
+    inputs.dir(rustSrcDir)
+    inputs.dir(cratesDir)
+    inputs.file(gemstoneRoot.resolve("Cargo.toml"))
+    outputs.dir(generatedKotlinDir.resolve("uniffi"))
+    commandLine("/bin/sh", "-l", "-c", "just bindgen-kotlin")
+}
+
+val buildCargoNdk = tasks.register<Exec>("buildCargoNdk") {
+    description = "Build gemstone native libraries using cargo-ndk"
+    workingDir = gemstoneRoot
+    inputs.dir(rustSrcDir)
+    inputs.dir(cratesDir)
+    inputs.file(gemstoneRoot.resolve("Cargo.toml"))
+    inputs.property("cargoBuildFlag", cargoBuildFlag.orEmpty())
+    outputs.dir(jniLibsDir)
+    commandLine("/bin/sh", "-l", "-c", "cargo ndk $cargoNdkTargets -o ${jniLibsDir.absolutePath} build --lib ${cargoBuildFlag.orEmpty()}")
+}
+
+tasks.configureEach {
+    if (name.startsWith("lint") || name.startsWith("updateLintBaseline")) {
+        enabled = false
+    }
+    if (name.matches(Regex("(compile|extract|source|javaDoc).*(Debug|Release).*"))) {
+        dependsOn(bindgenKotlin)
+    }
+    if (name.matches(Regex("merge.*(Debug|Release).*JniLib.*"))) {
+        dependsOn(buildCargoNdk)
+    }
+}
+
+dependencies {
+    api("net.java.dev.jna:jna:5.18.1@aar")
+    implementation(libs.kotlinx.coroutines.android)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+}

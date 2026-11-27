@@ -1,0 +1,159 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import BigInt
+import Formatters
+import Foundation
+import protocol BsvHomeCore.BsvHomeAmountServiceProtocol
+import enum BsvHomeCore.BsvHomeAmountType
+import enum BsvHomeCore.BsvHomePerpetualPositionAction
+import struct BsvHomeCore.BsvHomePerpetualTransferData
+import struct BsvHomeCore.BsvHomeTransferData
+import BsvHomeCorePrimitives
+import Localization
+import Perpetuals
+import Primitives
+import PrimitivesComponents
+import Style
+
+@Observable
+public final class AmountPerpetualViewModel: AmountDataProvidable {
+    let asset: Asset
+    let action: BsvHomePerpetualPositionAction
+    let leverageSelection: SelectionState<LeverageOption>?
+    let leverageTextStyle: TextStyle
+    let currencyFormatter: CurrencyFormatter
+    private let service: any BsvHomeAmountServiceProtocol
+    private let numericFormatter = NumericFormatter()
+
+    var takeProfit: String?
+    var stopLoss: String?
+
+    private var isAutocloseEdited = false
+
+    init(asset: Asset, action: BsvHomePerpetualPositionAction, service: any BsvHomeAmountServiceProtocol) {
+        self.asset = asset
+        self.action = action
+        self.service = service
+        currencyFormatter = CurrencyFormatter(type: .currency, currencyCode: service.getCurrency())
+        (leverageSelection, leverageTextStyle) = Self.makeLeverageSelection(action: action, service: service)
+        (takeProfit, stopLoss) = Self.makeDefaultAutoclose(action: action, leverage: leverageSelection?.selected.value ?? action.transferData().leverage, service: service)
+    }
+
+    var autocloseTitle: String {
+        Localized.Perpetual.autoClose
+    }
+
+    private var transferData: BsvHomePerpetualTransferData {
+        action.transferData()
+    }
+
+    private var leverage: UInt8 {
+        leverageSelection?.selected.value ?? transferData.leverage
+    }
+
+    var isAutocloseEnabled: Bool {
+        action.showsAutoclose()
+    }
+
+    private var direction: PerpetualDirection {
+        transferData.direction.map()
+    }
+
+    var autocloseText: (subtitle: String, subtitleExtra: String?) {
+        AutocloseFormatter(
+            takeProfitLabel: Localized.Perpetual.takeProfit,
+            stopLossLabel: Localized.Perpetual.stopLoss,
+        ).format(
+            takeProfit: takeProfit.flatMap { numericFormatter.double(from: $0) },
+            stopLoss: stopLoss.flatMap { numericFormatter.double(from: $0) },
+        )
+    }
+
+    var title: String {
+        switch action {
+        case .open: PerpetualDirectionViewModel(direction: direction).title
+        case .increase: PerpetualDirectionViewModel(direction: direction).increaseTitle
+        case .reduce: PerpetualDirectionViewModel(direction: direction).reduceTitle
+        }
+    }
+
+    var bsvHomeAmountType: BsvHomeAmountType {
+        service.perpetualAmountType(action: action, leverage: leverage)
+    }
+
+    func makeTransferData(value: BigInt, useMaxAmount: Bool) -> BsvHomeTransferData {
+        service.perpetualTransferData(
+            action: action,
+            value: value,
+            useMaxAmount: useMaxAmount,
+            leverage: leverage,
+            takeProfit: takeProfit.flatMap { numericFormatter.double(from: $0) },
+            stopLoss: stopLoss.flatMap { numericFormatter.double(from: $0) },
+        )
+    }
+
+    func makeAutocloseData(size: Double) -> AutocloseOpenData {
+        AutocloseOpenData(
+            assetId: transferData.asset.map().id,
+            symbol: transferData.asset.symbol,
+            direction: direction,
+            marketPrice: transferData.price,
+            leverage: leverageSelection?.selected.value ?? 1,
+            size: size,
+            assetDecimals: transferData.asset.decimals,
+            takeProfit: takeProfit,
+            stopLoss: stopLoss,
+        )
+    }
+
+    func onChangeLeverage() {
+        guard !isAutocloseEdited else { return }
+        (takeProfit, stopLoss) = Self.makeDefaultAutoclose(action: action, leverage: leverage, service: service)
+    }
+
+    func updateAutoclose(takeProfit: String?, stopLoss: String?) {
+        isAutocloseEdited = true
+        self.takeProfit = takeProfit
+        self.stopLoss = stopLoss
+    }
+
+    private static func makeLeverageSelection(
+        action: BsvHomePerpetualPositionAction,
+        service: any BsvHomeAmountServiceProtocol,
+    ) -> (SelectionState<LeverageOption>?, TextStyle) {
+        guard case let .open(openData) = action else {
+            return (nil, .callout)
+        }
+
+        let maxLeverage = openData.leverage
+        let textStyle = TextStyle(
+            font: .callout,
+            color: PerpetualDirectionViewModel(direction: openData.direction.map()).color,
+        )
+        let selection = SelectionState(
+            options: LeverageOption.options(maxLeverage: maxLeverage),
+            selected: LeverageOption(value: service.perpetualLeverage(maxLeverage: maxLeverage)),
+            isEnabled: true,
+            title: Localized.Perpetual.leverage,
+        )
+
+        return (selection, textStyle)
+    }
+
+    private static func makeDefaultAutoclose(
+        action: BsvHomePerpetualPositionAction,
+        leverage: UInt8,
+        service: any BsvHomeAmountServiceProtocol,
+    ) -> (takeProfit: String?, stopLoss: String?) {
+        guard case .open = action else {
+            return (nil, nil)
+        }
+        let transferData = action.transferData()
+        let autoclose = service.perpetualAutoclose(price: transferData.price, direction: transferData.direction, leverage: leverage)
+        let formatter = PerpetualFormatter(provider: .hypercore)
+        return (
+            autoclose.takeProfit.map { formatter.formatInputPrice($0, decimals: transferData.asset.decimals) },
+            autoclose.stopLoss.map { formatter.formatInputPrice($0, decimals: transferData.asset.decimals) },
+        )
+    }
+}

@@ -1,0 +1,33 @@
+[package]
+name = "bsv_home_derivation"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+bsv_home_algorand = { path = "../bsv_home_algorand", default-features = false }
+bsv_home_aptos = { path = "../bsv_home_aptos", default-features = false }
+bsv_home_bsv = { path = "../bsv_home_bsv", features = ["signer"] }
+bsv_home_bitcoin = { path = "../bsv_home_bitcoin", default-features = false, features = ["signer"] }
+bsv_home_cardano = { path = "../bsv_home_cardano", default-features = false, features = ["signer"] }
+bsv_home_cosmos = { path = "../bsv_home_cosmos", default-features = false }
+bsv_home_crypto = { path = "../bsv_home_crypto", features = ["hash", "pbkdf"] }
+bsv_home_evm = { path = "../bsv_home_evm", default-features = false }
+bsv_home_hash = { path = "../bsv_home_hash" }
+bsv_home_keystore = { path = "../bsv_home_keystore" }
+bsv_home_polkadot = { path = "../bsv_home_polkadot", default-features = false }
+bsv_home_solana = { path = "../bsv_home_solana", default-features = false }
+bsv_home_stellar = { path = "../bsv_home_stellar", default-features = false, features = ["signer"] }
+bsv_home_sui = { path = "../bsv_home_sui", default-features = false }
+bsv_home_ton = { path = "../bsv_home_ton", default-features = false, features = ["signer"] }
+bsv_home_tron = { path = "../bsv_home_tron", default-features = false }
+bsv_home_xrp = { path = "../bsv_home_xrp", default-features = false }
+bitcoin = { workspace = true }
+bs58 = { workspace = true }
+primitives = { path = "../primitives" }
+signer = { path = "../signer" }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+primitives = { path = "../primitives", features = ["testkit"] }
+serde = { workspace = true }
+serde_json = { workspace = true }

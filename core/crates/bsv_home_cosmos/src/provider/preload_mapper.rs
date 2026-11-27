@@ -1,0 +1,156 @@
+use std::error::Error;
+
+use num_bigint::BigInt;
+use primitives::{AssetId, GasPriceType, StakeType, SwapProvider, TransactionFee, TransactionInputType, chain_cosmos::CosmosChain};
+
+use crate::constants::get_base_fee;
+
+fn get_fee(chain: CosmosChain, input_type: &TransactionInputType) -> BigInt {
+    match chain {
+        CosmosChain::Thorchain | CosmosChain::Mayachain => BigInt::from(get_base_fee(chain)),
+        CosmosChain::Cosmos => match input_type {
+            TransactionInputType::Transfer { .. }
+            | TransactionInputType::Withdrawal { .. }
+            | TransactionInputType::Deposit { .. }
+            | TransactionInputType::TransferNft { .. }
+            | TransactionInputType::Account { .. }
+            | TransactionInputType::TokenApprove { .. }
+            | TransactionInputType::Generic { .. }
+            | TransactionInputType::Perpetual { .. }
+            | TransactionInputType::Earn { .. } => BigInt::from(3_000u64),
+            TransactionInputType::Swap { .. } => BigInt::from(3_000u64),
+            TransactionInputType::Stake { .. } => BigInt::from(25_000u64),
+        },
+        CosmosChain::Osmosis => match input_type {
+            TransactionInputType::Transfer { .. }
+            | TransactionInputType::Withdrawal { .. }
+            | TransactionInputType::Deposit { .. }
+            | TransactionInputType::TransferNft { .. }
+            | TransactionInputType::Account { .. }
+            | TransactionInputType::TokenApprove { .. }
+            | TransactionInputType::Generic { .. }
+            | TransactionInputType::Perpetual { .. }
+            | TransactionInputType::Earn { .. } => BigInt::from(10_000u64),
+            TransactionInputType::Swap { .. } => BigInt::from(10_000u64),
+            TransactionInputType::Stake { .. } => BigInt::from(100_000u64),
+        },
+        CosmosChain::Celestia => match input_type {
+            TransactionInputType::Transfer { .. }
+            | TransactionInputType::Withdrawal { .. }
+            | TransactionInputType::Deposit { .. }
+            | TransactionInputType::TransferNft { .. }
+            | TransactionInputType::Account { .. }
+            | TransactionInputType::TokenApprove { .. }
+            | TransactionInputType::Generic { .. }
+            | TransactionInputType::Perpetual { .. }
+            | TransactionInputType::Earn { .. } => BigInt::from(3_000u64),
+            TransactionInputType::Swap { .. } => BigInt::from(3_000u64),
+            TransactionInputType::Stake { .. } => BigInt::from(10_000u64),
+        },
+        CosmosChain::Sei => match input_type {
+            TransactionInputType::Transfer { .. }
+            | TransactionInputType::Withdrawal { .. }
+            | TransactionInputType::Deposit { .. }
+            | TransactionInputType::TransferNft { .. }
+            | TransactionInputType::Account { .. }
+            | TransactionInputType::TokenApprove { .. }
+            | TransactionInputType::Generic { .. }
+            | TransactionInputType::Perpetual { .. }
+            | TransactionInputType::Earn { .. } => BigInt::from(100_000u64),
+            TransactionInputType::Swap { .. } => BigInt::from(100_000u64),
+            TransactionInputType::Stake { .. } => BigInt::from(200_000u64),
+        },
+        CosmosChain::Injective => match input_type {
+            TransactionInputType::Transfer { .. }
+            | TransactionInputType::Withdrawal { .. }
+            | TransactionInputType::Deposit { .. }
+            | TransactionInputType::TransferNft { .. }
+            | TransactionInputType::Account { .. }
+            | TransactionInputType::TokenApprove { .. }
+            | TransactionInputType::Generic { .. }
+            | TransactionInputType::Perpetual { .. }
+            | TransactionInputType::Earn { .. } => BigInt::from(100_000_000_000_000u64),
+            TransactionInputType::Swap { .. } => BigInt::from(100_000_000_000_000u64),
+            TransactionInputType::Stake { .. } => BigInt::from(1_000_000_000_000_000u64),
+        },
+        CosmosChain::Noble => BigInt::from(25_000u64),
+    }
+}
+
+fn get_gas_limit(input_type: &TransactionInputType, _chain: CosmosChain) -> Result<u64, Box<dyn Error + Send + Sync>> {
+    Ok(match input_type {
+        TransactionInputType::Transfer { .. }
+        | TransactionInputType::Withdrawal { .. }
+        | TransactionInputType::Deposit { .. }
+        | TransactionInputType::TransferNft { .. }
+        | TransactionInputType::Account { .. }
+        | TransactionInputType::TokenApprove { .. }
+        | TransactionInputType::Generic { .. }
+        | TransactionInputType::Perpetual { .. }
+        | TransactionInputType::Earn { .. } => 200_000,
+        TransactionInputType::Swap { swap_data, .. } => match swap_data.quote.provider_data.provider {
+            SwapProvider::Thorchain => 200_000,
+            _ => 2_000_000,
+        },
+        TransactionInputType::Stake { stake_type: operation, .. } => match operation {
+            StakeType::Stake(_) | StakeType::Unstake(_) => 1_000_000,
+            StakeType::Redelegate(_) => 1_250_000,
+            StakeType::Rewards(_) => 750_000,
+            StakeType::Withdraw(_) => 750_000,
+            StakeType::Freeze(_) | StakeType::Unfreeze(_) => return Err("Cosmos freeze operations are not supported".into()),
+        },
+    })
+}
+
+fn scale_to_gas_price(fee: BigInt, chain: CosmosChain, gas_price_type: &GasPriceType) -> BigInt {
+    let base_gas_price = BigInt::from(get_base_fee(chain));
+    fee * gas_price_type.gas_price() / base_gas_price
+}
+
+pub fn calculate_transaction_fee(input_type: &TransactionInputType, chain: CosmosChain, gas_price_type: &GasPriceType) -> Result<TransactionFee, Box<dyn Error + Sync + Send>> {
+    let gas_limit = get_gas_limit(input_type, chain)?;
+    let fee = scale_to_gas_price(get_fee(chain, input_type), chain, gas_price_type);
+
+    Ok(TransactionFee {
+        fee,
+        gas_price_type: gas_price_type.clone(),
+        gas_limit: BigInt::from(gas_limit),
+        options: std::collections::HashMap::new(),
+        fee_asset: AssetId::from_chain(chain.as_chain()),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use primitives::{Asset, Chain, Resource};
+
+    #[test]
+    fn test_the_chosen_gas_price_reaches_the_fee() {
+        let input_type = TransactionInputType::Transfer {
+            asset: Asset::from_chain(Chain::Osmosis),
+        };
+        let base = get_base_fee(CosmosChain::Osmosis);
+
+        let normal = calculate_transaction_fee(&input_type, CosmosChain::Osmosis, &GasPriceType::regular(base)).unwrap();
+        let fast = calculate_transaction_fee(&input_type, CosmosChain::Osmosis, &GasPriceType::regular(base * 2)).unwrap();
+
+        assert_eq!(normal.fee, BigInt::from(10_000u64));
+        assert_eq!(fast.fee, BigInt::from(20_000u64));
+    }
+
+    #[test]
+    fn calculate_transaction_fee_rejects_freeze_without_panicking() {
+        let input_type = TransactionInputType::Stake {
+            asset: Asset::from_chain(Chain::Cosmos),
+            stake_type: StakeType::Freeze(Resource::Bandwidth),
+        };
+
+        assert_eq!(
+            calculate_transaction_fee(&input_type, CosmosChain::Cosmos, &GasPriceType::regular(1u64))
+                .unwrap_err()
+                .to_string(),
+            "Cosmos freeze operations are not supported"
+        );
+    }
+}

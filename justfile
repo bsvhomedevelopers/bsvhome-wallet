@@ -1,0 +1,72 @@
+mod ios 'ios/justfile'
+mod android 'android/justfile'
+mod core 'core/justfile'
+
+default:
+    @just --list
+
+setup-git:
+    @echo "==> Setup iOS git submodules"
+    @git submodule sync --recursive
+    @git submodule update --init --recursive
+    @git config submodule.recurse true
+
+build:
+    @echo "==> Building iOS app"
+    @just ios build
+    @echo "==> Building Android app"
+    @just android build
+
+clean:
+    @echo "==> Cleaning iOS build folders"
+    @just ios clean
+    @echo "==> Cleaning Android build folders"
+    @just android clean
+    @echo "==> Cleaning Rust build folders"
+    @just core clean
+
+run-ios:
+    @just ios run
+
+run-android:
+    @just android run
+
+start-emulator:
+    @just android start-emulator
+
+test:
+    @echo "==> Test iOS app"
+    @just ios test
+    @echo "==> Test Android app"
+    @just android test
+
+lint:
+    @echo "==> Lint iOS app"
+    @just ios lint
+    @echo "==> Lint Android app"
+    @just android lint
+
+test-integration:
+    @echo "==> Test iOS app integration"
+    @just ios test-integration
+    @echo "==> Test Android app integration"
+    @just android test-integration
+
+generate: generate-models generate-core generate-android-stone
+
+generate-models:
+    @just ios generate-models
+    @just android generate-models
+
+generate-core:
+    @just ios generate-core
+
+generate-android-stone:
+    @just android generate-stone
+
+localize:
+    @just ios localize
+    @just android localize
+
+bump TARGET="patch":
+    @bash ./scripts/bump.sh {{TARGET}}

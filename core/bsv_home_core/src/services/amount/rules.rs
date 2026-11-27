@@ -1,0 +1,981 @@
+use std::str::FromStr;
+
+use num_bigint::{BigInt, BigUint};
+use primitives::{Asset, AutocloseEstimator, Chain, EarnType, PerpetualDirection, StakeChain, TpslType};
+
+use super::model::{
+    BsvHomeAmountEarnType, BsvHomeAmountEntry, BsvHomeAmountEquivalent, BsvHomeAmountError, BsvHomeAmountInput, BsvHomeAmountInputType, BsvHomeAmountMaxEntry,
+    BsvHomeAmountPerpetualPosition, BsvHomeAmountStakeType, BsvHomeAmountTransfer, BsvHomeAmountType, BsvHomePerpetualAutoclose,
+};
+use crate::config::perpetual_config::{MIN_DEPOSIT_AMOUNT, MIN_WITHDRAW_AMOUNT};
+use crate::config::stake::get_stake_config;
+use crate::models::custom_types::BsvHomeBigInt;
+use crate::perpetual::BsvHomePerpetual;
+use crate::services::balance::{BsvHomeAssetBalance, BsvHomeBalanceRequirement};
+use crate::services::error::BsvHomeServiceError;
+use crate::services::perpetual::BsvHomePerpetualPositionAction;
+use crate::services::perpetual::rules::margin_amount_value;
+use crate::services::stake::model::BsvHomeStakeAmountInput;
+use crate::services::stake::rules as stake_rules;
+use crate::services::transfer::rules as transfer_rules;
+use crate::services::transfer::{BsvHomeRecipient, BsvHomeTransferData};
+use bsv_home_hypercore::perpetual_formatter::PerpetualFormatter;
+use number_formatter::{BigNumberFormatter, CryptoFiatConverter};
+use primitives::PerpetualProvider;
+use primitives::TransactionInputType;
+
+const USDC_SYMBOL: &str = "USDC";
+
+#[uniffi::export]
+impl BsvHomeAmountType {
+    pub fn input(&self, asset: &Asset, balance: &BsvHomeAssetBalance) -> BsvHomeAmountInput {
+        let available = self.available_value(asset, balance);
+        let reserve = reserve_for_fee(self, asset);
+        let max_after_fee = (&available - &reserve).max(BigInt::from(0));
+        let reserved_fee = reserves_fee(self, &reserve, &max_after_fee, &minimum_value(self, asset)).then_some(reserve);
+        BsvHomeAmountInput {
+            available_value: available.clone(),
+            max_value: if reserved_fee.is_some() { max_after_fee } else { available },
+            reserved_fee,
+            can_change_value: can_change_value(self, asset),
+            shows_asset_balance: shows_asset_balance(self, asset),
+            uses_whole_amounts: uses_whole_amounts(self, asset),
+        }
+    }
+
+    pub fn can_switch_input_type(&self, price: Option<f64>, input_type: BsvHomeAmountInputType) -> bool {
+        match self {
+            Self::Transfer => input_type == BsvHomeAmountInputType::Fiat || valid_price(price).is_some(),
+            Self::Deposit | Self::Withdraw | Self::Stake { .. } | Self::Earn { .. } | Self::Perpetual { .. } => false,
+        }
+    }
+
+    pub fn entry(&self, asset: &Asset, input: &BsvHomeAmountInput, price: Option<f64>, input_type: BsvHomeAmountInputType, text: String) -> BsvHomeAmountEntry {
+        let decimals = asset.decimals as u32;
+        let (value, error) = match entry_value(&text, asset, price, input_type) {
+            Ok(Some(value)) => {
+                let error = validate(asset, &value, &input.available_value, &minimum_value(self, asset)).err();
+                (Some(value), error)
+            }
+            Ok(None) => (None, None),
+            Err(error) => (None, Some(error)),
+        };
+        let is_max = value.as_ref() == Some(&input.max_value);
+        BsvHomeAmountEntry {
+            equivalent: equivalent(value.as_ref(), decimals, price, input_type),
+            is_max,
+            reserved_fee: if is_max { input.reserved_fee.clone() } else { None },
+            value,
+            error,
+        }
+    }
+}
+
+#[uniffi::export]
+impl BsvHomeAmountInput {
+    pub fn max_entry(&self) -> BsvHomeAmountMaxEntry {
+        BsvHomeAmountMaxEntry {
+            input_type: BsvHomeAmountInputType::Asset,
+            value: self.max_value.clone(),
+        }
+    }
+}
+
+fn uses_whole_amounts(amount_type: &BsvHomeAmountType, asset: &Asset) -> bool {
+    let stakes_or_unstakes = matches!(
+        amount_type,
+        BsvHomeAmountType::Stake {
+            stake_type: BsvHomeAmountStakeType::Stake | BsvHomeAmountStakeType::Unstake { .. }
+        }
+    );
+    stakes_or_unstakes && stake_rules::uses_whole_amounts(asset.chain())
+}
+
+fn entry_value(text: &str, asset: &Asset, price: Option<f64>, input_type: BsvHomeAmountInputType) -> Result<Option<BigInt>, BsvHomeAmountError> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let decimals = asset.decimals as u32;
+    let amount = match input_type {
+        BsvHomeAmountInputType::Asset => text.to_string(),
+        BsvHomeAmountInputType::Fiat => {
+            let price = valid_price(price).ok_or(BsvHomeAmountError::PriceMissing)?;
+            CryptoFiatConverter::to_crypto_at_entry_precision(text, decimals, price).map_err(invalid_number)?
+        }
+    };
+    if asset.chain() == Chain::BitcoinSv && input_type == BsvHomeAmountInputType::Asset {
+        BigNumberFormatter::value_from_amount_exact(&amount, decimals)
+            .map(|value| Some(BigInt::from(value)))
+            .map_err(invalid_number)
+    } else {
+        let value = BigNumberFormatter::value_from_amount_truncated(&amount, decimals).map_err(invalid_number)?;
+        BigInt::from_str(&value).map(Some).map_err(invalid_number)
+    }
+}
+
+fn invalid_number<E>(_: E) -> BsvHomeAmountError {
+    BsvHomeAmountError::InvalidNumber
+}
+
+fn equivalent(value: Option<&BigInt>, decimals: u32, price: Option<f64>, input_type: BsvHomeAmountInputType) -> Option<BsvHomeAmountEquivalent> {
+    let price = valid_price(price)?;
+    let value = value.cloned().unwrap_or_default();
+    match input_type {
+        BsvHomeAmountInputType::Asset => {
+            let amount = CryptoFiatConverter::to_fiat(&value.to_string(), decimals, price).ok()?.parse().ok()?;
+            Some(BsvHomeAmountEquivalent::Fiat { amount })
+        }
+        BsvHomeAmountInputType::Fiat => Some(BsvHomeAmountEquivalent::Asset { value }),
+    }
+}
+
+fn valid_price(price: Option<f64>) -> Option<f64> {
+    price.filter(|price| price.is_finite() && *price > 0.0)
+}
+
+pub fn perpetual_amount_type(action: &BsvHomePerpetualPositionAction, leverage: u8) -> BsvHomeAmountType {
+    let data = action.data();
+    BsvHomeAmountType::Perpetual {
+        position: match action {
+            BsvHomePerpetualPositionAction::Open { .. } => BsvHomeAmountPerpetualPosition::Open,
+            BsvHomePerpetualPositionAction::Increase { .. } => BsvHomeAmountPerpetualPosition::Increase,
+            BsvHomePerpetualPositionAction::Reduce { position, .. } => BsvHomeAmountPerpetualPosition::Reduce {
+                available: margin_amount_value(position),
+            },
+        },
+        direction: data.direction.clone(),
+        price: data.price,
+        leverage,
+        size_decimals: data.asset.decimals,
+    }
+}
+
+pub fn stake_amount_type(input: &BsvHomeStakeAmountInput) -> BsvHomeAmountType {
+    let stake_type = match input {
+        BsvHomeStakeAmountInput::Stake { .. } => BsvHomeAmountStakeType::Stake,
+        BsvHomeStakeAmountInput::Unstake { delegation } => BsvHomeAmountStakeType::Unstake { delegation: delegation.clone() },
+        BsvHomeStakeAmountInput::Redelegate { delegation, .. } => BsvHomeAmountStakeType::Redelegate { delegation: delegation.clone() },
+        BsvHomeStakeAmountInput::Withdraw { delegation } => BsvHomeAmountStakeType::Withdraw { delegation: delegation.clone() },
+        BsvHomeStakeAmountInput::Rewards { delegations, validator } => BsvHomeAmountStakeType::Rewards {
+            delegations: match stake_rules::rewards_validator(delegations, validator) {
+                Some(validator) => delegations.iter().filter(|delegation| delegation.validator.id == validator.id).cloned().collect(),
+                None => vec![],
+            },
+        },
+        BsvHomeStakeAmountInput::Freeze { resource } => BsvHomeAmountStakeType::Freeze { resource: *resource },
+        BsvHomeStakeAmountInput::Unfreeze { resource } => BsvHomeAmountStakeType::Unfreeze { resource: *resource },
+    };
+    BsvHomeAmountType::Stake { stake_type }
+}
+
+pub fn earn_amount_type(earn_type: EarnType) -> BsvHomeAmountType {
+    BsvHomeAmountType::Earn {
+        earn_type: match earn_type {
+            EarnType::Deposit(_) => BsvHomeAmountEarnType::Deposit,
+            EarnType::Withdraw(delegation) => BsvHomeAmountEarnType::Withdraw { delegation },
+        },
+    }
+}
+
+pub fn transfer_amount_type(transfer: &BsvHomeAmountTransfer) -> BsvHomeAmountType {
+    match transfer {
+        BsvHomeAmountTransfer::Send { .. } => BsvHomeAmountType::Transfer,
+        BsvHomeAmountTransfer::Deposit => BsvHomeAmountType::Deposit,
+        BsvHomeAmountTransfer::Withdraw => BsvHomeAmountType::Withdraw,
+    }
+}
+
+pub fn transfer_display_asset(transfer: &BsvHomeAmountTransfer, asset: Asset) -> Asset {
+    match transfer {
+        BsvHomeAmountTransfer::Withdraw => BsvHomePerpetual::new(PerpetualProvider::Hypercore).deposit_asset(),
+        BsvHomeAmountTransfer::Send { .. } | BsvHomeAmountTransfer::Deposit => asset,
+    }
+}
+
+pub fn transfer_prefilled_amount(transfer: &BsvHomeAmountTransfer) -> Option<String> {
+    match transfer {
+        BsvHomeAmountTransfer::Send { payment } => payment.amount.clone(),
+        BsvHomeAmountTransfer::Deposit | BsvHomeAmountTransfer::Withdraw => None,
+    }
+}
+
+pub fn transfer_data(
+    asset: Asset,
+    transfer: BsvHomeAmountTransfer,
+    owner: Option<BsvHomeRecipient>,
+    value: BsvHomeBigInt,
+    use_max_amount: bool,
+) -> Result<BsvHomeTransferData, BsvHomeServiceError> {
+    let (input_type, recipient) = match transfer {
+        BsvHomeAmountTransfer::Send { payment } => (TransactionInputType::Transfer { asset }, payment.recipient),
+        BsvHomeAmountTransfer::Deposit => (
+            TransactionInputType::Deposit { asset },
+            BsvHomePerpetual::new(PerpetualProvider::Hypercore).deposit_recipient(),
+        ),
+        BsvHomeAmountTransfer::Withdraw => {
+            let owner = owner.ok_or_else(|| BsvHomeServiceError::NotFound {
+                msg: format!("no {} account to withdraw to", asset.chain()),
+            })?;
+            (TransactionInputType::Withdrawal { asset }, owner)
+        }
+    };
+    Ok(BsvHomeTransferData {
+        input_type,
+        recipient,
+        value,
+        use_max_amount,
+    })
+}
+
+impl BsvHomeAmountType {
+    fn available_value(&self, asset: &Asset, balance: &BsvHomeAssetBalance) -> BigInt {
+        match self {
+            Self::Transfer | Self::Deposit => BigInt::from(balance.available.clone()),
+            Self::Withdraw => BigInt::from(balance.withdrawable.clone()),
+            Self::Stake { stake_type } => match stake_type {
+                BsvHomeAmountStakeType::Stake if asset.chain() == Chain::Tron => transfer_rules::tron_stake_available(asset, balance),
+                BsvHomeAmountStakeType::Stake | BsvHomeAmountStakeType::Freeze { .. } => BigInt::from(balance.available.clone()),
+                BsvHomeAmountStakeType::Unstake { delegation } | BsvHomeAmountStakeType::Redelegate { delegation } | BsvHomeAmountStakeType::Withdraw { delegation } => {
+                    BigInt::from(delegation.base.balance.clone())
+                }
+                BsvHomeAmountStakeType::Rewards { delegations } => BigInt::from(delegations.iter().map(|delegation| delegation.base.rewards.clone()).sum::<BigUint>()),
+                BsvHomeAmountStakeType::Unfreeze { resource } => transfer_rules::unfreeze_available(resource, balance),
+            },
+            Self::Earn { earn_type } => match earn_type {
+                BsvHomeAmountEarnType::Deposit => BigInt::from(balance.available.clone()),
+                BsvHomeAmountEarnType::Withdraw { delegation } => BigInt::from(delegation.base.balance.clone()),
+            },
+            Self::Perpetual { position, .. } => match position {
+                BsvHomeAmountPerpetualPosition::Open | BsvHomeAmountPerpetualPosition::Increase => BigInt::from(balance.available.clone()),
+                BsvHomeAmountPerpetualPosition::Reduce { available } => BigInt::from(available.clone()),
+            },
+        }
+    }
+}
+
+pub fn perpetual_autoclose(price: f64, direction: PerpetualDirection, leverage: u8, take_profit_percent: u8, stop_loss_percent: u8) -> BsvHomePerpetualAutoclose {
+    let estimator = AutocloseEstimator::for_open(price, 0.0, leverage, direction);
+    let target = |percent: u8, trigger_type: TpslType| (percent > 0).then(|| estimator.target_price_from_roe(i32::from(percent), trigger_type));
+    BsvHomePerpetualAutoclose {
+        take_profit: target(take_profit_percent, TpslType::TakeProfit),
+        stop_loss: target(stop_loss_percent, TpslType::StopLoss),
+    }
+}
+
+pub fn validate(asset: &Asset, value: &BigInt, available: &BigInt, minimum: &BigInt) -> Result<(), BsvHomeAmountError> {
+    if value <= &BigInt::from(0) {
+        return Err(BsvHomeAmountError::Zero);
+    }
+    if value < minimum {
+        return Err(BsvHomeAmountError::BelowMinimum {
+            asset: asset.clone(),
+            minimum: minimum.clone(),
+        });
+    }
+    if value > available {
+        return Err(BsvHomeAmountError::InsufficientBalance {
+            asset: asset.clone(),
+            requirement: BsvHomeBalanceRequirement::new(value.clone(), available.clone()),
+        });
+    }
+    Ok(())
+}
+
+fn minimum_value(amount_type: &BsvHomeAmountType, asset: &Asset) -> BigInt {
+    let stake_config = stake_chain(asset.chain()).map(get_stake_config);
+    match amount_type {
+        BsvHomeAmountType::Transfer | BsvHomeAmountType::Earn { .. } => BigInt::from(0),
+        BsvHomeAmountType::Deposit => usdc_minimum(asset, MIN_DEPOSIT_AMOUNT),
+        BsvHomeAmountType::Withdraw => usdc_minimum(asset, MIN_WITHDRAW_AMOUNT),
+        BsvHomeAmountType::Stake { stake_type } => match stake_type {
+            BsvHomeAmountStakeType::Stake | BsvHomeAmountStakeType::Freeze { .. } => stake_config.map(|config| BigInt::from(config.min_amount)).unwrap_or_default(),
+            BsvHomeAmountStakeType::Redelegate { .. } if asset.chain() == Chain::SmartChain => stake_config.map(|config| BigInt::from(config.min_amount)).unwrap_or_default(),
+            BsvHomeAmountStakeType::Withdraw { .. }
+            | BsvHomeAmountStakeType::Redelegate { .. }
+            | BsvHomeAmountStakeType::Unstake { .. }
+            | BsvHomeAmountStakeType::Unfreeze { .. }
+            | BsvHomeAmountStakeType::Rewards { .. } => BigInt::from(0),
+        },
+        BsvHomeAmountType::Perpetual {
+            position,
+            price,
+            leverage,
+            size_decimals,
+            ..
+        } => {
+            let minimum = BigInt::from(PerpetualFormatter::minimum_order_usd_amount(*price, *size_decimals, *leverage));
+            match position {
+                BsvHomeAmountPerpetualPosition::Open | BsvHomeAmountPerpetualPosition::Increase => minimum,
+                BsvHomeAmountPerpetualPosition::Reduce { available } => minimum.min(BigInt::from(available.clone())),
+            }
+        }
+    }
+}
+
+fn reserve_for_fee(amount_type: &BsvHomeAmountType, asset: &Asset) -> BigInt {
+    let reserved = stake_chain(asset.chain())
+        .map(|chain| BigInt::from(get_stake_config(chain).reserved_for_fees))
+        .unwrap_or_default();
+    match amount_type {
+        BsvHomeAmountType::Stake { stake_type } => match stake_type {
+            BsvHomeAmountStakeType::Stake if asset.chain() != Chain::Tron => reserved,
+            BsvHomeAmountStakeType::Freeze { .. } => reserved,
+            _ => BigInt::from(0),
+        },
+        _ => BigInt::from(0),
+    }
+}
+
+fn can_change_value(amount_type: &BsvHomeAmountType, asset: &Asset) -> bool {
+    match amount_type {
+        BsvHomeAmountType::Stake { stake_type } => match stake_type {
+            BsvHomeAmountStakeType::Unstake { .. } => stake_chain(asset.chain()).map(|chain| get_stake_config(chain).change_amount_on_unstake).unwrap_or(true),
+            BsvHomeAmountStakeType::Withdraw { .. } | BsvHomeAmountStakeType::Rewards { .. } => false,
+            BsvHomeAmountStakeType::Stake | BsvHomeAmountStakeType::Redelegate { .. } | BsvHomeAmountStakeType::Freeze { .. } | BsvHomeAmountStakeType::Unfreeze { .. } => true,
+        },
+        _ => true,
+    }
+}
+
+fn shows_asset_balance(amount_type: &BsvHomeAmountType, asset: &Asset) -> bool {
+    match amount_type {
+        BsvHomeAmountType::Stake {
+            stake_type: BsvHomeAmountStakeType::Rewards { .. },
+        } => true,
+        _ => can_change_value(amount_type, asset),
+    }
+}
+
+fn reserves_fee(amount_type: &BsvHomeAmountType, reserve: &BigInt, max_after_fee: &BigInt, minimum: &BigInt) -> bool {
+    match amount_type {
+        BsvHomeAmountType::Stake {
+            stake_type: BsvHomeAmountStakeType::Stake | BsvHomeAmountStakeType::Freeze { .. },
+        } => reserve > &BigInt::from(0) && max_after_fee > minimum,
+        _ => false,
+    }
+}
+
+fn usdc_minimum(asset: &Asset, minimum: u64) -> BigInt {
+    if asset.symbol == USDC_SYMBOL { BigInt::from(minimum) } else { BigInt::from(0) }
+}
+
+fn stake_chain(chain: Chain) -> Option<StakeChain> {
+    StakeChain::from_str(chain.as_ref()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::perpetual_config::HYPERLIQUID_DEPOSIT_ADDRESS;
+    use crate::models::custom_types::BsvHomeBigUint;
+    use crate::payment::BsvHomePaymentRecipient;
+    use primitives::Resource;
+    use primitives::asset_balance::BalanceMetadata;
+    use primitives::{AssetId, AssetType, Delegation, DelegationBase, DelegationState, DelegationValidator, StakeProviderType};
+
+    fn asset(chain: Chain) -> Asset {
+        Asset::from_chain(chain)
+    }
+
+    fn usdc() -> Asset {
+        Asset::new(AssetId::from(Chain::HyperCore, Some("usdc".into())), "USDC".into(), "USDC".into(), 6, AssetType::TOKEN)
+    }
+
+    fn balance(available: u64, frozen: u64, locked: u64, votes: u32) -> BsvHomeAssetBalance {
+        BsvHomeAssetBalance {
+            available: BigUint::from(available),
+            frozen: BigUint::from(frozen),
+            locked: BigUint::from(locked),
+            withdrawable: BigUint::from(7u32),
+            metadata: Some(BalanceMetadata {
+                votes,
+                ..BalanceMetadata::default()
+            }),
+            ..BsvHomeAssetBalance::mock()
+        }
+    }
+
+    fn delegation(balance: u64, rewards: u64) -> Delegation {
+        Delegation {
+            base: DelegationBase {
+                asset_id: AssetId::from_chain(Chain::Cosmos),
+                state: DelegationState::Active,
+                balance: BigUint::from(balance),
+                shares: BigUint::default(),
+                rewards: BigUint::from(rewards),
+                completion_date: None,
+                delegation_id: "delegation".into(),
+                validator_id: "validator".into(),
+            },
+            validator: DelegationValidator {
+                chain: Chain::Cosmos,
+                id: "validator".into(),
+                name: "validator".into(),
+                is_active: true,
+                commission: 0.0,
+                apr: 0.0,
+                provider_type: StakeProviderType::Stake,
+            },
+        }
+    }
+
+    fn stake(stake_type: BsvHomeAmountStakeType) -> BsvHomeAmountType {
+        BsvHomeAmountType::Stake { stake_type }
+    }
+
+    #[test]
+    fn test_stake_rules_reserve_fees_and_minimums() {
+        let cosmos = asset(Chain::Cosmos);
+        let config = get_stake_config(StakeChain::Cosmos);
+        assert_eq!(minimum_value(&stake(BsvHomeAmountStakeType::Stake), &cosmos), BigInt::from(config.min_amount));
+
+        let stake_input = stake(BsvHomeAmountStakeType::Stake).input(&cosmos, &balance(config.reserved_for_fees * 10 + config.min_amount * 10, 0, 0, 0));
+        assert_eq!(stake_input.reserved_fee, Some(BigInt::from(config.reserved_for_fees)));
+        assert!(stake_input.can_change_value);
+        assert_eq!(stake_input.max_value, BigInt::from(config.reserved_for_fees * 9 + config.min_amount * 10));
+
+        let tron = asset(Chain::Tron);
+        let tron_config = get_stake_config(StakeChain::Tron);
+        assert_eq!(reserve_for_fee(&stake(BsvHomeAmountStakeType::Stake), &tron), BigInt::ZERO);
+        assert_eq!(
+            stake(BsvHomeAmountStakeType::Stake).available_value(&tron, &balance(1, 5_000_000, 3_000_000, 2)),
+            BigInt::from(6_000_000)
+        );
+        let freeze = stake(BsvHomeAmountStakeType::Freeze { resource: Resource::Bandwidth });
+        assert!(tron_config.reserved_for_fees > 0);
+        let freeze_input = freeze.input(&tron, &balance(tron_config.reserved_for_fees + tron_config.min_amount + 1, 99, 98, 0));
+        assert_eq!(freeze_input.available_value, BigInt::from(tron_config.reserved_for_fees + tron_config.min_amount + 1));
+        assert_eq!(freeze_input.reserved_fee, Some(BigInt::from(tron_config.reserved_for_fees)));
+        assert_eq!(freeze_input.max_value, BigInt::from(tron_config.min_amount + 1));
+
+        let smart_chain = asset(Chain::SmartChain);
+        let redelegate = stake(BsvHomeAmountStakeType::Redelegate { delegation: delegation(50, 0) });
+        let smart_chain_minimum = get_stake_config(StakeChain::SmartChain).min_amount;
+        assert!(smart_chain_minimum > 0);
+        assert_eq!(minimum_value(&redelegate, &smart_chain), BigInt::from(smart_chain_minimum));
+        assert_eq!(minimum_value(&redelegate, &cosmos), BigInt::ZERO);
+
+        let unstake = stake(BsvHomeAmountStakeType::Unstake { delegation: delegation(50, 0) });
+        let solana_unstake = unstake.input(&asset(Chain::Solana), &balance(1, 0, 0, 0));
+        assert!(!solana_unstake.can_change_value);
+        assert!(!solana_unstake.shows_asset_balance);
+        let cosmos_unstake = unstake.input(&cosmos, &balance(1, 0, 0, 0));
+        assert!(cosmos_unstake.can_change_value);
+        assert!(cosmos_unstake.shows_asset_balance);
+
+        let rewards = stake(BsvHomeAmountStakeType::Rewards { delegations: vec![] }).input(&cosmos, &balance(1, 0, 0, 0));
+        assert!(!rewards.can_change_value);
+        assert!(rewards.shows_asset_balance);
+        assert_eq!(
+            stake(BsvHomeAmountStakeType::Rewards {
+                delegations: vec![delegation(10, 3), delegation(20, 4)]
+            })
+            .available_value(&cosmos, &balance(1, 0, 0, 0)),
+            BigInt::from(7)
+        );
+        assert_eq!(
+            stake(BsvHomeAmountStakeType::Unstake { delegation: delegation(50, 0) }).available_value(&cosmos, &balance(1, 0, 0, 0)),
+            BigInt::from(50)
+        );
+        assert_eq!(
+            stake(BsvHomeAmountStakeType::Unfreeze { resource: Resource::Energy }).available_value(&tron, &balance(1, 2, 3, 0)),
+            BigInt::from(3)
+        );
+        assert_eq!(
+            stake(BsvHomeAmountStakeType::Unfreeze { resource: Resource::Bandwidth }).available_value(&tron, &balance(1, 2, 3, 0)),
+            BigInt::from(2)
+        );
+    }
+
+    #[test]
+    fn test_only_a_stake_or_unstake_on_a_whole_unit_chain_uses_whole_amounts() {
+        let tron = asset(Chain::Tron);
+        let funded = balance(10_000_000, 0, 0, 0);
+        assert!(stake(BsvHomeAmountStakeType::Stake).input(&tron, &funded).uses_whole_amounts);
+        assert!(
+            stake(BsvHomeAmountStakeType::Unstake { delegation: delegation(50, 0) })
+                .input(&tron, &funded)
+                .uses_whole_amounts
+        );
+        assert!(!stake(BsvHomeAmountStakeType::Rewards { delegations: vec![] }).input(&tron, &funded).uses_whole_amounts);
+        assert!(!BsvHomeAmountType::Transfer.input(&tron, &funded).uses_whole_amounts);
+        assert!(!stake(BsvHomeAmountStakeType::Stake).input(&asset(Chain::Cosmos), &funded).uses_whole_amounts);
+    }
+
+    #[test]
+    fn test_limits_reserve_boundary() {
+        let solana = asset(Chain::Solana);
+        let config = get_stake_config(StakeChain::Solana);
+        let reserve = config.reserved_for_fees;
+        let minimum = config.min_amount;
+        assert!(reserve > 0 && minimum > 0);
+
+        let at_boundary = stake(BsvHomeAmountStakeType::Stake).input(&solana, &balance(reserve + minimum, 0, 0, 0));
+        assert_eq!(at_boundary.reserved_fee, None);
+        assert_eq!(at_boundary.max_value, BigInt::from(reserve + minimum));
+
+        let above_boundary = stake(BsvHomeAmountStakeType::Stake).input(&solana, &balance(reserve + minimum + 1, 0, 0, 0));
+        assert_eq!(above_boundary.reserved_fee, Some(BigInt::from(reserve)));
+        assert_eq!(above_boundary.max_value, BigInt::from(minimum + 1));
+
+        let below_reserve = stake(BsvHomeAmountStakeType::Stake).input(&solana, &balance(reserve - 1, 0, 0, 0));
+        assert_eq!(below_reserve.reserved_fee, None);
+        assert_eq!(below_reserve.max_value, BigInt::from(reserve - 1));
+        assert_eq!(below_reserve.available_value, BigInt::from(reserve - 1));
+    }
+
+    #[test]
+    fn test_earn_perpetual_and_deposit_sources() {
+        let ethereum = asset(Chain::Ethereum);
+        assert_eq!(
+            BsvHomeAmountType::Earn {
+                earn_type: BsvHomeAmountEarnType::Deposit
+            }
+            .available_value(&ethereum, &balance(11, 0, 0, 0)),
+            BigInt::from(11)
+        );
+        assert_eq!(
+            BsvHomeAmountType::Earn {
+                earn_type: BsvHomeAmountEarnType::Withdraw { delegation: delegation(33, 0) }
+            }
+            .available_value(&ethereum, &balance(11, 0, 0, 0)),
+            BigInt::from(33)
+        );
+        assert_eq!(BsvHomeAmountType::Deposit.available_value(&usdc(), &balance(5, 0, 0, 0)), BigInt::from(5));
+        assert_eq!(BsvHomeAmountType::Withdraw.available_value(&usdc(), &balance(5, 0, 0, 0)), BigInt::from(7));
+
+        let perpetual = |leverage: u8, size_decimals: i32| BsvHomeAmountType::Perpetual {
+            position: BsvHomeAmountPerpetualPosition::Open,
+            direction: PerpetualDirection::Long,
+            price: 4.0,
+            leverage,
+            size_decimals,
+        };
+        assert_eq!(minimum_value(&perpetual(1, 0), &usdc()), BigInt::from(12_000_000));
+        assert_eq!(minimum_value(&perpetual(1, 1), &usdc()), BigInt::from(10_000_000));
+        assert_eq!(minimum_value(&perpetual(2, 0), &usdc()), BigInt::from(6_000_000));
+        assert_eq!(perpetual(1, 0).available_value(&usdc(), &balance(9, 0, 0, 0)), BigInt::from(9));
+    }
+
+    fn transfer_entry(asset: &Asset, available: u64, price: Option<f64>, input_type: BsvHomeAmountInputType, text: &str) -> BsvHomeAmountEntry {
+        let input = BsvHomeAmountType::Transfer.input(asset, &balance(available, 0, 0, 0));
+        BsvHomeAmountType::Transfer.entry(asset, &input, price, input_type, text.to_string())
+    }
+
+    #[test]
+    fn test_entry_reads_the_text_in_the_input_units() {
+        let usdc = usdc();
+        let typed = transfer_entry(&usdc, 100_000_000_000, Some(2.0), BsvHomeAmountInputType::Asset, "1000.123456");
+        assert_eq!(typed.value, Some(BigInt::from(1_000_123_456)));
+        assert_eq!(typed.error, None);
+        assert_eq!(typed.equivalent, Some(BsvHomeAmountEquivalent::Fiat { amount: 2000.246912 }));
+        assert!(!typed.is_max);
+        assert_eq!(transfer_entry(&usdc, 100_000_000, None, BsvHomeAmountInputType::Asset, "1.5").equivalent, None);
+
+        let fiat = transfer_entry(&usdc, 100_000_000_000, Some(1.0), BsvHomeAmountInputType::Fiat, "1000.123456");
+        assert_eq!(fiat.value, Some(BigInt::from(1_000_120_000)));
+        assert_eq!(
+            fiat.equivalent,
+            Some(BsvHomeAmountEquivalent::Asset {
+                value: BigInt::from(1_000_120_000)
+            })
+        );
+        assert_eq!(
+            transfer_entry(&usdc, 100_000_000_000, Some(1.0), BsvHomeAmountInputType::Fiat, "1000").value,
+            Some(BigInt::from(1_000_000_000))
+        );
+        assert_eq!(
+            transfer_entry(&usdc, 100_000_000, None, BsvHomeAmountInputType::Fiat, "10").error,
+            Some(BsvHomeAmountError::PriceMissing)
+        );
+        assert_eq!(
+            transfer_entry(&usdc, 100_000_000, Some(0.0), BsvHomeAmountInputType::Fiat, "10").error,
+            Some(BsvHomeAmountError::PriceMissing)
+        );
+
+        let ether = asset(Chain::Ethereum);
+        let whole = transfer_entry(&ether, 1_000_000_000_000_000_000, Some(2.0), BsvHomeAmountInputType::Asset, "1");
+        assert_eq!(whole.value, Some(BigInt::from(1_000_000_000_000_000_000u64)));
+        assert!(whole.is_max);
+        let tiny = transfer_entry(&ether, 1_000_000_000_000_000_000, Some(4000.0), BsvHomeAmountInputType::Fiat, "0.0000001");
+        assert_eq!(tiny.value, Some(BigInt::from(25_000_000u64)));
+        assert_eq!(tiny.error, None);
+    }
+
+    #[test]
+    fn test_bsv_entry_rejects_fractional_satoshis() {
+        let bsv = asset(Chain::BitcoinSv);
+        let entry = |text| transfer_entry(&bsv, 200_000_000, None, BsvHomeAmountInputType::Asset, text);
+        for text in ["0.000000001", "0.000000019", "1.183818719"] {
+            assert_eq!(
+                entry(text),
+                BsvHomeAmountEntry {
+                    value: None,
+                    error: Some(BsvHomeAmountError::InvalidNumber),
+                    equivalent: None,
+                    is_max: false,
+                    reserved_fee: None,
+                }
+            );
+        }
+        assert_eq!(entry("0.00000001").value, Some(BigInt::from(1)));
+        assert_eq!(entry("1.18381871").value, Some(BigInt::from(118_381_871)));
+        assert_eq!(entry("1.000000000").value, Some(BigInt::from(100_000_000)));
+        assert_eq!(entry("0").error, Some(BsvHomeAmountError::Zero));
+        assert_eq!(entry("-1").error, Some(BsvHomeAmountError::InvalidNumber));
+        assert_eq!(
+            transfer_entry(&asset(Chain::Bitcoin), 200_000_000, None, BsvHomeAmountInputType::Asset, "1.183818719").value,
+            Some(BigInt::from(118_381_871))
+        );
+    }
+
+    #[test]
+    fn test_entry_rejects_empty_zero_and_invalid_text() {
+        let usdc = usdc();
+        let entry = |input_type, text| transfer_entry(&usdc, 100_000_000, Some(1.0), input_type, text);
+
+        let empty = entry(BsvHomeAmountInputType::Asset, " ");
+        assert_eq!(empty.value, None);
+        assert_eq!(empty.error, None);
+        assert_eq!(empty.equivalent, Some(BsvHomeAmountEquivalent::Fiat { amount: 0.0 }));
+
+        assert_eq!(entry(BsvHomeAmountInputType::Asset, "abc").error, Some(BsvHomeAmountError::InvalidNumber));
+        assert_eq!(entry(BsvHomeAmountInputType::Asset, "-1").error, Some(BsvHomeAmountError::InvalidNumber));
+        assert_eq!(entry(BsvHomeAmountInputType::Fiat, "0").error, Some(BsvHomeAmountError::Zero));
+        assert_eq!(entry(BsvHomeAmountInputType::Asset, "0.0000001").error, Some(BsvHomeAmountError::Zero));
+        assert_eq!(entry(BsvHomeAmountInputType::Fiat, "0.0000001").error, Some(BsvHomeAmountError::Zero));
+        assert_eq!(
+            entry(BsvHomeAmountInputType::Asset, "200").error,
+            Some(BsvHomeAmountError::InsufficientBalance {
+                asset: usdc.clone(),
+                requirement: BsvHomeBalanceRequirement::new(BigInt::from(200_000_000), BigInt::from(100_000_000))
+            })
+        );
+
+        let bnb = asset(Chain::SmartChain);
+        let stake = stake(BsvHomeAmountStakeType::Stake);
+        let input = stake.input(&bnb, &balance(5_000_000_000_000_000_000, 0, 0, 0));
+        assert_eq!(
+            stake.entry(&bnb, &input, Some(1.0), BsvHomeAmountInputType::Asset, "0.99".to_string()).error,
+            Some(BsvHomeAmountError::BelowMinimum {
+                asset: bnb.clone(),
+                minimum: BigInt::from(1_000_000_000_000_000_000u64)
+            })
+        );
+    }
+
+    #[test]
+    fn test_entry_max_carries_the_reserved_fee() {
+        let cosmos = asset(Chain::Cosmos);
+        let config = get_stake_config(StakeChain::Cosmos);
+        let available = config.reserved_for_fees * 10 + config.min_amount * 10;
+        let stake = stake(BsvHomeAmountStakeType::Stake);
+        let input = stake.input(&cosmos, &balance(available, 0, 0, 0));
+        let max = input.max_entry();
+        assert_eq!(max.input_type, BsvHomeAmountInputType::Asset);
+        assert_eq!(max.value, BigInt::from(available - config.reserved_for_fees));
+
+        let max_text = BigNumberFormatter::value(&max.value.to_string(), cosmos.decimals).unwrap();
+        let at_max = stake.entry(&cosmos, &input, Some(10.0), BsvHomeAmountInputType::Asset, max_text);
+        assert!(at_max.is_max);
+        assert_eq!(at_max.reserved_fee, Some(BigInt::from(config.reserved_for_fees)));
+
+        let below_max = stake.entry(&cosmos, &input, Some(10.0), BsvHomeAmountInputType::Asset, "1".to_string());
+        assert!(!below_max.is_max);
+        assert_eq!(below_max.reserved_fee, None);
+    }
+
+    #[test]
+    fn test_perpetual_reduce_minimum_allows_only_the_full_small_position() {
+        for direction in [PerpetualDirection::Long, PerpetualDirection::Short] {
+            for leverage in [1, 3] {
+                let minimum = 10_170_000 / u64::from(leverage);
+                let available = 6_000_000 / u64::from(leverage);
+                let amount_type = |position| BsvHomeAmountType::Perpetual {
+                    position,
+                    direction: direction.clone(),
+                    price: 3390.0,
+                    leverage,
+                    size_decimals: 4,
+                };
+                let balance = balance(100_000_000, 0, 0, 0);
+                let check = |amount: &BsvHomeAmountType, value: BigInt| validate(&usdc(), &value, &amount.available_value(&usdc(), &balance), &minimum_value(amount, &usdc()));
+                let reduce = amount_type(BsvHomeAmountPerpetualPosition::Reduce { available: available.into() });
+                assert_eq!(check(&reduce, available.into()), Ok(()));
+                assert_eq!(check(&reduce, BigInt::ZERO), Err(BsvHomeAmountError::Zero));
+                assert_eq!(check(&reduce, (-1).into()), Err(BsvHomeAmountError::Zero));
+                assert_eq!(
+                    check(&reduce, (available - 1).into()),
+                    Err(BsvHomeAmountError::BelowMinimum {
+                        asset: usdc(),
+                        minimum: available.into()
+                    })
+                );
+                assert_eq!(
+                    check(&reduce, (available + 1).into()),
+                    Err(BsvHomeAmountError::InsufficientBalance {
+                        asset: usdc(),
+                        requirement: BsvHomeBalanceRequirement::new((available + 1).into(), available.into())
+                    })
+                );
+                for position in [
+                    BsvHomeAmountPerpetualPosition::Open,
+                    BsvHomeAmountPerpetualPosition::Increase,
+                    BsvHomeAmountPerpetualPosition::Reduce { available: 20_000_000u64.into() },
+                ] {
+                    let amount = amount_type(position);
+                    assert_eq!(check(&amount, minimum.into()), Ok(()));
+                    assert_eq!(
+                        check(&amount, (minimum - 1).into()),
+                        Err(BsvHomeAmountError::BelowMinimum {
+                            asset: usdc(),
+                            minimum: minimum.into()
+                        })
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_stake_withdraw_has_no_minimum() {
+        let withdraw = BsvHomeAmountType::Stake {
+            stake_type: BsvHomeAmountStakeType::Withdraw { delegation: delegation(700, 0) },
+        };
+        assert_eq!(minimum_value(&withdraw, &usdc()), BigInt::ZERO);
+        assert!(!withdraw.input(&usdc(), &balance(1, 0, 0, 0)).can_change_value);
+    }
+
+    #[test]
+    fn test_transfer_deposit_withdraw_rules() {
+        assert_eq!(minimum_value(&BsvHomeAmountType::Transfer, &asset(Chain::Ethereum)), BigInt::ZERO);
+        assert_eq!(minimum_value(&BsvHomeAmountType::Deposit, &usdc()), BigInt::from(MIN_DEPOSIT_AMOUNT));
+        assert_eq!(minimum_value(&BsvHomeAmountType::Withdraw, &usdc()), BigInt::from(MIN_WITHDRAW_AMOUNT));
+        assert_eq!(minimum_value(&BsvHomeAmountType::Deposit, &asset(Chain::Ethereum)), BigInt::ZERO);
+        assert_eq!(BsvHomeAmountType::Withdraw.available_value(&usdc(), &balance(1, 0, 0, 0)), BigInt::from(7));
+        assert_eq!(
+            BsvHomeAmountType::Perpetual {
+                position: BsvHomeAmountPerpetualPosition::Reduce { available: BigUint::from(42u32) },
+                direction: PerpetualDirection::Long,
+                price: 1.0,
+                leverage: 1,
+                size_decimals: 0
+            }
+            .available_value(&usdc(), &balance(1, 0, 0, 0)),
+            BigInt::from(42)
+        );
+    }
+
+    #[test]
+    fn test_perpetual_autoclose_follows_the_preference_percents() {
+        let long = perpetual_autoclose(100.0, PerpetualDirection::Long, 10, 50, 20);
+        assert_eq!(long.take_profit, Some(105.0));
+        assert_eq!(long.stop_loss, Some(98.0));
+
+        let short = perpetual_autoclose(100.0, PerpetualDirection::Short, 10, 50, 20);
+        assert_eq!(short.take_profit, Some(95.0));
+        assert_eq!(short.stop_loss, Some(102.0));
+
+        let off = perpetual_autoclose(100.0, PerpetualDirection::Long, 10, 0, 20);
+        assert_eq!(off.take_profit, None);
+        assert_eq!(off.stop_loss, Some(98.0));
+        assert_eq!(
+            perpetual_autoclose(100.0, PerpetualDirection::Long, 10, 0, 0),
+            BsvHomePerpetualAutoclose {
+                take_profit: None,
+                stop_loss: None
+            }
+        );
+    }
+
+    #[test]
+    fn test_validate() {
+        let bnb = asset(Chain::SmartChain);
+        assert_eq!(validate(&bnb, &BigInt::from(0), &BigInt::from(10), &BigInt::from(0)), Err(BsvHomeAmountError::Zero));
+        assert_eq!(
+            validate(&bnb, &BigInt::from(1), &BigInt::from(10), &BigInt::from(2)),
+            Err(BsvHomeAmountError::BelowMinimum {
+                asset: bnb.clone(),
+                minimum: BigInt::from(2)
+            })
+        );
+        assert_eq!(
+            validate(&bnb, &BigInt::from(11), &BigInt::from(10), &BigInt::from(0)),
+            Err(BsvHomeAmountError::InsufficientBalance {
+                asset: bnb.clone(),
+                requirement: BsvHomeBalanceRequirement::new(BigInt::from(11), BigInt::from(10))
+            })
+        );
+        assert_eq!(validate(&bnb, &BigInt::from(5), &BigInt::from(10), &BigInt::from(2)), Ok(()));
+        assert_eq!(validate(&bnb, &BigInt::from(0), &BigInt::from(10), &BigInt::from(5)), Err(BsvHomeAmountError::Zero));
+        assert_eq!(validate(&bnb, &BigInt::from(-1), &BigInt::from(10), &BigInt::from(5)), Err(BsvHomeAmountError::Zero));
+    }
+
+    #[test]
+    fn test_transfer_balance_carries_big_integers_so_a_malformed_value_cannot_read_as_zero() {
+        let _: fn(BsvHomeAssetBalance) -> (BsvHomeBigUint, BsvHomeBigUint, BsvHomeBigUint, BsvHomeBigUint) =
+            |balance| (balance.available, balance.frozen, balance.locked, balance.withdrawable);
+        assert_eq!(
+            BsvHomeAmountType::Transfer.available_value(&asset(Chain::Ethereum), &balance(500, 0, 0, 0)),
+            BigInt::from(500)
+        );
+    }
+
+    #[test]
+    fn test_transfer_switches_to_fiat_only_with_a_valid_price() {
+        assert!(BsvHomeAmountType::Transfer.can_switch_input_type(Some(1.0), BsvHomeAmountInputType::Asset));
+        for price in [None, Some(0.0), Some(-1.0), Some(f64::NAN), Some(f64::INFINITY)] {
+            assert!(!BsvHomeAmountType::Transfer.can_switch_input_type(price, BsvHomeAmountInputType::Asset));
+            assert!(BsvHomeAmountType::Transfer.can_switch_input_type(price, BsvHomeAmountInputType::Fiat));
+        }
+        assert!(!BsvHomeAmountType::Deposit.can_switch_input_type(Some(1.0), BsvHomeAmountInputType::Asset));
+        assert!(!BsvHomeAmountType::Withdraw.can_switch_input_type(Some(1.0), BsvHomeAmountInputType::Asset));
+        assert!(!stake(BsvHomeAmountStakeType::Stake).can_switch_input_type(Some(1.0), BsvHomeAmountInputType::Asset));
+    }
+
+    #[test]
+    fn test_perpetual_open_amount_type_uses_the_selected_leverage() {
+        let data = crate::services::perpetual::BsvHomePerpetualTransferData {
+            provider: PerpetualProvider::Hypercore,
+            direction: PerpetualDirection::Short,
+            asset: usdc(),
+            base_asset: usdc(),
+            asset_index: 1,
+            price: 120.5,
+            leverage: 3,
+            margin_type: primitives::PerpetualMarginType::Cross,
+        };
+
+        let open = perpetual_amount_type(&BsvHomePerpetualPositionAction::Open { data }, 10);
+        assert_eq!(
+            open,
+            BsvHomeAmountType::Perpetual {
+                position: BsvHomeAmountPerpetualPosition::Open,
+                direction: PerpetualDirection::Short,
+                price: 120.5,
+                leverage: 10,
+                size_decimals: 6,
+            }
+        );
+    }
+
+    #[test]
+    fn test_stake_amount_type_mirrors_the_input_and_keeps_only_the_confirmed_validator_rewards() {
+        let delegation = delegation(100, 5);
+        let other = Delegation {
+            base: DelegationBase {
+                validator_id: "other".into(),
+                ..delegation.base.clone()
+            },
+            validator: DelegationValidator {
+                id: "other".into(),
+                ..delegation.validator.clone()
+            },
+        };
+        let validators = vec![delegation.validator.clone(), other.validator.clone()];
+
+        assert_eq!(
+            stake_amount_type(&BsvHomeStakeAmountInput::Stake {
+                validators: validators.clone(),
+                validator: None
+            }),
+            stake(BsvHomeAmountStakeType::Stake)
+        );
+        assert_eq!(
+            stake_amount_type(&BsvHomeStakeAmountInput::Unstake { delegation: delegation.clone() }),
+            stake(BsvHomeAmountStakeType::Unstake { delegation: delegation.clone() })
+        );
+        assert_eq!(
+            stake_amount_type(&BsvHomeStakeAmountInput::Redelegate {
+                validators,
+                delegation: delegation.clone(),
+                validator: Some(other.validator.clone()),
+            }),
+            stake(BsvHomeAmountStakeType::Redelegate { delegation: delegation.clone() })
+        );
+        let rewards = |validator| BsvHomeStakeAmountInput::Rewards {
+            delegations: vec![other.clone(), delegation.clone()],
+            validator,
+        };
+        assert_eq!(
+            stake_amount_type(&rewards(None)),
+            stake(BsvHomeAmountStakeType::Rewards { delegations: vec![other.clone()] })
+        );
+        assert_eq!(
+            stake_amount_type(&rewards(Some(delegation.validator.clone()))),
+            stake(BsvHomeAmountStakeType::Rewards { delegations: vec![delegation] })
+        );
+        assert_eq!(
+            stake_amount_type(&BsvHomeStakeAmountInput::Freeze { resource: Resource::Energy }),
+            stake(BsvHomeAmountStakeType::Freeze { resource: Resource::Energy })
+        );
+    }
+
+    #[test]
+    fn test_earn_amount_type_keeps_the_withdrawn_delegation() {
+        let delegation = delegation(100, 0);
+
+        assert_eq!(
+            earn_amount_type(EarnType::Deposit(delegation.validator.clone())),
+            BsvHomeAmountType::Earn {
+                earn_type: BsvHomeAmountEarnType::Deposit
+            }
+        );
+        assert_eq!(
+            earn_amount_type(EarnType::Withdraw(delegation.clone())),
+            BsvHomeAmountType::Earn {
+                earn_type: BsvHomeAmountEarnType::Withdraw { delegation }
+            }
+        );
+    }
+
+    #[test]
+    fn test_transfer_data_addresses_a_send_a_deposit_and_a_withdrawal() {
+        let recipient = BsvHomeRecipient::named("to".into(), "friend".into());
+        let owner = BsvHomeRecipient::named("owner".into(), "wallet".into());
+
+        let payment = BsvHomePaymentRecipient {
+            recipient: recipient.clone(),
+            amount: Some("1.5".into()),
+        };
+        let send = transfer_data(usdc(), BsvHomeAmountTransfer::Send { payment: payment.clone() }, None, BsvHomeBigInt::from(1), false).unwrap();
+        assert!(matches!(send.input_type, TransactionInputType::Transfer { .. }));
+        assert_eq!(send.recipient, recipient);
+
+        let deposit = transfer_data(usdc(), BsvHomeAmountTransfer::Deposit, None, BsvHomeBigInt::from(2), true).unwrap();
+        assert!(matches!(deposit.input_type, TransactionInputType::Deposit { .. }));
+        assert_eq!(deposit.recipient.address, HYPERLIQUID_DEPOSIT_ADDRESS);
+        assert!(deposit.use_max_amount);
+
+        let withdraw = transfer_data(usdc(), BsvHomeAmountTransfer::Withdraw, Some(owner.clone()), BsvHomeBigInt::from(3), false).unwrap();
+        assert!(matches!(withdraw.input_type, TransactionInputType::Withdrawal { .. }));
+        assert_eq!(withdraw.recipient, owner);
+
+        assert!(transfer_data(usdc(), BsvHomeAmountTransfer::Withdraw, None, BsvHomeBigInt::from(3), false).is_err());
+    }
+
+    #[test]
+    fn test_each_transfer_kind_names_its_amount_type_display_asset_and_prefill() {
+        let send = BsvHomeAmountTransfer::Send {
+            payment: BsvHomePaymentRecipient {
+                recipient: BsvHomeRecipient::named("to".into(), "friend".into()),
+                amount: Some("2".into()),
+            },
+        };
+
+        assert_eq!(transfer_amount_type(&send), BsvHomeAmountType::Transfer);
+        assert_eq!(transfer_amount_type(&BsvHomeAmountTransfer::Deposit), BsvHomeAmountType::Deposit);
+        assert_eq!(transfer_amount_type(&BsvHomeAmountTransfer::Withdraw), BsvHomeAmountType::Withdraw);
+
+        assert_eq!(transfer_display_asset(&send, usdc()), usdc());
+        assert_eq!(transfer_display_asset(&BsvHomeAmountTransfer::Deposit, usdc()), usdc());
+        assert_eq!(
+            transfer_display_asset(&BsvHomeAmountTransfer::Withdraw, usdc()),
+            BsvHomePerpetual::new(PerpetualProvider::Hypercore).deposit_asset()
+        );
+
+        assert_eq!(transfer_prefilled_amount(&send).as_deref(), Some("2"));
+        assert_eq!(transfer_prefilled_amount(&BsvHomeAmountTransfer::Withdraw), None);
+    }
+}

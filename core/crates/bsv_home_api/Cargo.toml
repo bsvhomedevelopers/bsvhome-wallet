@@ -1,0 +1,16 @@
+[package]
+name = "bsv_home_api"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+primitives = { path = "../primitives" }
+bsv_home_auth = { path = "../bsv_home_auth" }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+strum = { workspace = true }
+async-trait = { workspace = true }
+bsv_home_client = { path = "../bsv_home_client" }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["client"] }
+percent-encoding = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,61 @@
+[package]
+name = "swapper"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[features]
+default = []
+reqwest_provider = ["dep:reqwest", "bsv_home_client/reqwest"]
+unit_tests = ["reqwest_provider"]
+swap_integration_tests = ["reqwest_provider"]
+
+[dependencies]
+primitives = { path = "../primitives" }
+bsv_home_solana = { path = "../bsv_home_solana", features = ["rpc"] }
+bsv_home_ton = { path = "../bsv_home_ton", features = ["rpc", "tvm"] }
+bsv_home_evm = { path = "../bsv_home_evm", features = ["rpc"] }
+bsv_home_sui = { path = "../bsv_home_sui", features = ["rpc"] }
+bsv_home_aptos = { path = "../bsv_home_aptos", features = ["rpc"] }
+bsv_home_cosmos = { path = "../bsv_home_cosmos" }
+bsv_home_tron = { path = "../bsv_home_tron", default-features = false, features = ["rpc"] }
+bsv_home_hash = { path = "../bsv_home_hash" }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["client"] }
+bsv_home_client = { path = "../bsv_home_client" }
+bsv_home_hypercore = { path = "../bsv_home_hypercore" }
+serde_serializers = { path = "../serde_serializers", features = ["bigint"] }
+number_formatter = { path = "../number_formatter" }
+sui-types = { workspace = true }
+sui-transaction-builder = { package = "sui-transaction-builder", version = "0.3.1", default-features = false }
+
+reqwest = { workspace = true, optional = true }
+
+strum = { workspace = true }
+
+bsv_home_encoding = { path = "../bsv_home_encoding" }
+serde.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+bcs.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+alloy-primitives.workspace = true
+alloy-sol-types.workspace = true
+hex.workspace = true
+num-bigint.workspace = true
+num-integer.workspace = true
+num-traits.workspace = true
+futures.workspace = true
+bs58 = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+solana-primitives = { workspace = true }
+bigdecimal.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+primitives = { path = "../primitives", features = ["testkit"] }
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+bsv_home_sui = { path = "../bsv_home_sui", features = ["reqwest"] }
+settings = { path = "../settings", features = ["testkit"] }

@@ -1,0 +1,102 @@
+package com.gemwallet.android.features.transfer_amount.presents
+
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
+import com.gemwallet.android.ui.R
+import com.gemwallet.android.ui.components.list_item.SubheaderItem
+import com.gemwallet.android.ui.components.list_item.ValidatorItem
+import com.gemwallet.android.ui.components.list_item.property.itemsPositioned
+import com.gemwallet.android.ui.components.screen.Scene
+import com.gemwallet.android.ui.models.ListPosition
+import com.gemwallet.android.ui.theme.WalletTheme
+import com.wallet.core.primitives.Chain
+import com.wallet.core.primitives.DelegationValidator
+import com.wallet.core.primitives.StakeProviderType
+
+@Composable
+fun ValidatorsScene(
+    recommended: List<DelegationValidator>,
+    validators: List<DelegationValidator>,
+    selectedValidatorId: String,
+    onSelect: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    Scene(
+        title = stringResource(id = R.string.stake_validators),
+        onClose = onCancel,
+    ) {
+        LazyColumn {
+            if (recommended.isNotEmpty()) {
+                item {
+                    SubheaderItem(R.string.common_recommended)
+                }
+                itemsPositioned(recommended, key = { index, item -> "recommended-${item.id}" }) { position, item ->
+                    ValidatorItem(
+                        data = item,
+                        listPosition = position,
+                        isSelected = selectedValidatorId == item.id,
+                        onClick = onSelect
+                    )
+                }
+
+            }
+            item {
+                SubheaderItem(R.string.stake_active)
+            }
+            val validatorsSize = validators.size
+            itemsIndexed(validators, key = { index, item -> item.id }) { index, item ->
+                ValidatorItem(
+                    data = item,
+                    listPosition = ListPosition.getPosition(index, validatorsSize),
+                    isSelected = selectedValidatorId == item.id,
+                    onClick = onSelect
+                )
+            }
+        }
+    }
+}
+
+@Composable
+@Preview
+fun PreviewValidatorsScene() {
+    WalletTheme {
+        ValidatorsScene(
+            recommended = emptyList(),
+            validators = listOf(
+                    DelegationValidator(
+                        chain = Chain.Sei,
+                        id = "some_validator_id",
+                        name = "Castlenode",
+                        isActive = true,
+                        commission = 0.5,
+                        apr = 9.10,
+                        providerType = StakeProviderType.Stake,
+                    ),
+                    DelegationValidator(
+                        chain = Chain.Sei,
+                        id = "some_validator_id_1",
+                        name = "Ubik Capital 0%Fee",
+                        isActive = true,
+                        commission = 0.5,
+                        apr = 10.000,
+                        providerType = StakeProviderType.Stake,
+                    ),
+                    DelegationValidator(
+                        chain = Chain.Sei,
+                        id = "some_validator_id_2",
+                        name = "Virtual Hive",
+                        isActive = true,
+                        commission = 0.5,
+                        apr = 9.50,
+                        providerType = StakeProviderType.Stake,
+                    ),
+                ),
+            selectedValidatorId = "some_validator_id_1",
+            onCancel = {},
+            onSelect = {},
+        )
+    }
+}

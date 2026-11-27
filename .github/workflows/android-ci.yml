@@ -1,0 +1,64 @@
+name: Android CI
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "android/**"
+      - "core/**"
+      - "rust-toolchain.toml"
+      - "localization/**"
+      - ".gitmodules"
+      - ".github/actions/**"
+      - ".github/workflows/android-ci.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "android/**"
+      - "core/**"
+      - "rust-toolchain.toml"
+      - "localization/**"
+      - ".gitmodules"
+      - ".github/actions/**"
+      - ".github/workflows/android-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  unit_test:
+    runs-on: ubuntu-latest
+    env:
+      UNIT_TESTS: "true"
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: recursive
+
+      - name: Setup Android CI
+        uses: ./.github/actions/setup-android-ci
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Install Android toolchains
+        run: |
+          just install-toolchains
+          just install-ndk
+
+      - name: Build app
+        run: just build
+
+      - name: Run unit tests
+        run: just test

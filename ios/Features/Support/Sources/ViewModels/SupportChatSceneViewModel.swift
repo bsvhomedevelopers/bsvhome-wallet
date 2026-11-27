@@ -1,0 +1,118 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import protocol BsvHomeCore.BsvHomeSupportServiceProtocol
+import BsvHomeCorePrimitives
+import Localization
+import PhotosUI
+import Primitives
+import Store
+import BsvHomeCoreServices
+import SwiftUI
+import Components
+import PrimitivesComponents
+
+@Observable
+@MainActor
+public final class SupportChatSceneViewModel {
+    private let service: any BsvHomeSupportServiceProtocol
+    private let typing: ObservableSupportTyping
+    public let query: ObservableQuery<SupportMessagesRequest>
+    var previewURL: URL?
+    var isPresentingAlertMessage: AlertMessage?
+
+    public init(service: any BsvHomeSupportServiceProtocol, typing: ObservableSupportTyping) {
+        self.service = service
+        self.typing = typing
+        query = ObservableQuery(SupportMessagesRequest(), initialValue: [])
+    }
+
+    var title: String { Localized.Settings.support }
+    var emptyTitle: String { Localized.Support.stateEmptyTitle }
+    var emptyDescription: String { Localized.Support.stateEmptyDescription }
+    var isEmpty: Bool { query.value.isEmpty }
+    var typingAgentName: String? { typing.agent?.name }
+
+    @ObservationIgnored
+    private(set) lazy var inputBarModel = SupportMessageInputBarViewModel(
+        onSendText: { [weak self] in self?.sendText($0) },
+        onSendImages: { [weak self] in self?.sendImages($0) },
+    )
+
+    var days: [SupportChatDay] {
+        SupportChatDayBuilder(
+            messages: query.value,
+            retryAction: { [weak self] in self?.retry($0) },
+            imageAction: { [weak self] in self?.openPreview($0) },
+        ).build()
+    }
+
+    func load() async {
+        let fromTimestamp = query.value.last { $0.sender.isAgent }.map { Int($0.createdAt.timeIntervalSince1970) } ?? 0
+        do {
+            try await service.syncMessages(fromTimestamp: fromTimestamp)
+        } catch {
+            debugLog("SupportChatSceneViewModel load error: \(error)")
+        }
+    }
+
+    func onScenePhaseChange(_: ScenePhase, _ newPhase: ScenePhase) {
+        switch newPhase {
+        case .active: Task { await load() }
+        case .inactive, .background: break
+        @unknown default: break
+        }
+    }
+
+    func onDisappear() {
+        typing.clear()
+    }
+
+    func sendText(_ content: String) {
+        Task {
+            await perform {
+                try await service.sendMessage(.text(content))
+            }
+        }
+    }
+
+    func sendImages(_ items: [PhotosPickerItem]) {
+        Task {
+            for item in items {
+                guard let attachment = try? await item.imageAttachment() else { continue }
+                await perform {
+                    try await service.sendMessage(.image(attachment))
+                }
+            }
+        }
+    }
+
+    func retry(_ message: SupportMessage) {
+        Task {
+            await perform {
+                try await service.retryMessage(message)
+            }
+        }
+    }
+
+    func openPreview(_ image: SupportMessageImage) {
+        guard let url = image.url.asURL else { return }
+        Task {
+            await perform {
+                previewURL = URL(fileURLWithPath: try await service.imageFile(url: url.absoluteString))
+            }
+        }
+    }
+}
+
+// MARK: - Private
+
+private extension SupportChatSceneViewModel {
+    func perform(_ operation: () async throws -> Void) async {
+        do {
+            try await operation()
+        } catch {
+            isPresentingAlertMessage = AlertMessage(error: error)
+        }
+    }
+}

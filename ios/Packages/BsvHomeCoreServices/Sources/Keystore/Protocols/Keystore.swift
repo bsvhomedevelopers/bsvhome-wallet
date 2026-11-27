@@ -1,0 +1,19 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+public import struct BsvHomeCore.BsvHomeSignedTransaction
+public import struct BsvHomeCore.BsvHomeSignerInput
+public import class BsvHomeCore.MessageSigner
+import Foundation
+import Primitives
+
+internal import SwiftUI
+
+public protocol Keystore: Sendable {
+    func keystorePassword(createIfMissing: Bool) throws -> String
+    /// Migrates pending v3 keystores to v4, reading the password at most once; returns per-wallet failures.
+    func migrateV3Keystores(for wallets: [Wallet]) async throws -> [KeystoreMigrationFailure]
+    func sign(wallet: Wallet, input: BsvHomeSignerInput) async throws -> [BsvHomeSignedTransaction]
+    func signMessage(signer: MessageSigner, wallet: Wallet) async throws -> String
+    func getPasswordAuthentication() throws -> KeystoreAuthentication
+    func destroy() throws
+}

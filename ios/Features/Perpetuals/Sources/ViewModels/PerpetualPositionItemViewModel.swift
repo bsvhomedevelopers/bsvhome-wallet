@@ -1,0 +1,62 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import Primitives
+import PrimitivesComponents
+import Style
+import SwiftUI
+
+struct PerpetualPositionItemViewModel: ListAssetItemViewable {
+    let model: PerpetualPositionViewModel
+    let showBalancePrivacy: Binding<Bool>
+    var action: ((ListAssetItemAction) -> Void)?
+
+    init(
+        model: PerpetualPositionViewModel,
+        showBalancePrivacy: Binding<Bool> = .constant(false),
+    ) {
+        self.model = model
+        self.showBalancePrivacy = showBalancePrivacy
+    }
+
+    var name: String {
+        model.symbolText
+    }
+
+    var symbol: String? {
+        nil
+    }
+
+    var assetImage: AssetImage {
+        model.assetImage
+    }
+
+    var subtitleView: ListAssetItemSubtitleView {
+        .type(
+            TextValue(
+                text: model.positionTypeText,
+                style: TextStyle(font: .footnote, color: model.positionTypeColor),
+            ),
+        )
+    }
+
+    var rightView: ListAssetItemRightView {
+        .balance(
+            balance: TextValue(
+                text: model.marginAmountText,
+                style: TextStyle(font: .body, color: .primary, fontWeight: .medium),
+            ),
+            totalFiat: TextValue(
+                text: model.pnlWithPercentText,
+                style: TextStyle(font: .footnote, color: model.pnlColor),
+            ),
+        )
+    }
+}
+
+extension PerpetualPositionItemViewModel: Identifiable {
+    var id: String {
+        model.id
+    }
+}

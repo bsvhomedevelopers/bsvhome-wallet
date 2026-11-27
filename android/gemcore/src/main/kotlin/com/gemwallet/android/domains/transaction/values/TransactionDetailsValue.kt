@@ -1,0 +1,120 @@
+package com.gemwallet.android.domains.transaction.values
+
+import com.gemwallet.android.domains.price.ValueDirection
+import uniffi.gemstone.GemSwapProgressStep
+import com.gemwallet.android.domains.swap.AssetRatePair
+import com.gemwallet.android.model.AssetPriceValue
+import com.wallet.core.primitives.AddressType
+import com.wallet.core.primitives.Asset
+import com.wallet.core.primitives.AssetId
+import com.wallet.core.primitives.BlockExplorerLink
+import com.wallet.core.primitives.Chain
+import com.wallet.core.primitives.Currency
+import com.wallet.core.primitives.Resource
+import com.wallet.core.primitives.TransactionNFTTransferMetadata
+import com.wallet.core.primitives.TransactionState
+import uniffi.gemstone.GemTransactionStatus
+import java.math.BigInteger
+
+sealed interface TransactionDetailsValue {
+
+    sealed interface Amount : TransactionDetailsValue {
+        class Swap(
+            val fromAsset: AssetPriceValue,
+            val fromValue: BigInteger,
+            val toAsset: AssetPriceValue,
+            val toValue: BigInteger,
+            val currency: Currency,
+        ) : Amount
+
+        class NFT(val metadata: TransactionNFTTransferMetadata) : Amount
+
+        class Plain(
+            val asset: Asset,
+            val value: String,
+            val equivalent: String?,
+        ) : Amount
+    }
+
+    class Fee(
+        val asset: Asset,
+        val value: String,
+        val equivalent: String,
+    ) : TransactionDetailsValue
+
+    class Date(val data: String) : TransactionDetailsValue
+
+    sealed class Destination(
+        val data: String,
+        val chain: Chain? = null,
+        val name: String? = null,
+        val addressType: AddressType? = null,
+        val explorerLink: BlockExplorerLink? = null,
+    ) : TransactionDetailsValue {
+        class Sender(
+            data: String,
+            chain: Chain,
+            name: String? = null,
+            addressType: AddressType? = null,
+            explorerLink: BlockExplorerLink? = null,
+        ) : Destination(data, chain, name, addressType, explorerLink)
+        class Recipient(
+            data: String,
+            chain: Chain,
+            name: String? = null,
+            addressType: AddressType? = null,
+            explorerLink: BlockExplorerLink? = null,
+        ) : Destination(data, chain, name, addressType, explorerLink)
+        class Contract(
+            data: String,
+            chain: Chain,
+            name: String? = null,
+            explorerLink: BlockExplorerLink? = null,
+        ) : Destination(data, chain = chain, name = name, explorerLink = explorerLink)
+        class Validator(
+            data: String,
+            chain: Chain,
+            name: String? = null,
+            explorerLink: BlockExplorerLink? = null,
+        ) : Destination(data, chain = chain, name = name, explorerLink = explorerLink)
+        class ProviderAddress(
+            data: String,
+            chain: Chain,
+            name: String? = null,
+            explorerLink: BlockExplorerLink? = null,
+        ) : Destination(data, chain = chain, name = name, explorerLink = explorerLink)
+        class Provider(name: String) : Destination(name)
+    }
+
+    class Status(val data: TransactionState, val status: GemTransactionStatus) : TransactionDetailsValue
+
+    class EstimatedConfirmation(val seconds: UInt) : TransactionDetailsValue
+
+    class Rate(val rate: AssetRatePair) : TransactionDetailsValue
+
+    class SwapProgress(
+        val fromAsset: Asset,
+        val fromValue: BigInteger,
+        val providerName: String,
+        val transfer: GemSwapProgressStep,
+        val swap: GemSwapProgressStep,
+        val etaInSeconds: UInt?,
+    ) : TransactionDetailsValue
+
+    class SwapAgain(
+        val fromAssetId: AssetId,
+        val toAssetId: AssetId,
+    ) : TransactionDetailsValue
+
+    class Memo(val data: String) : TransactionDetailsValue
+
+    class ResourceType(val data: Resource) : TransactionDetailsValue
+
+    class Network(val data: Asset) : TransactionDetailsValue
+
+    class Pnl(val value: String, val direction: ValueDirection) : TransactionDetailsValue
+
+    class Price(val data: String) : TransactionDetailsValue
+
+    class Explorer(val url: String, val name: String) : TransactionDetailsValue
+}

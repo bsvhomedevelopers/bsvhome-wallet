@@ -1,0 +1,16 @@
+[package]
+name = "signer"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+ed25519-dalek = { version = "3.0.0", default-features = false, features = ["zeroize"] }
+k256 = { workspace = true }
+primitives = { path = "../primitives" }
+bs58 = { workspace = true }
+alloy-primitives = { workspace = true }
+zeroize = { workspace = true }
+strum = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }

@@ -1,0 +1,52 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import enum BsvHomeCore.BsvHomeLatencyStatus
+import struct BsvHomeCore.BsvHomeServiceEndpoint
+import protocol BsvHomeCore.BsvHomeServiceStatusProtocol
+import Localization
+
+@Observable
+@MainActor
+public final class ServiceStatusViewModel {
+    private let service: any BsvHomeServiceStatusProtocol
+    private let endpoints: [BsvHomeServiceEndpoint]
+    private var statusStates: [BsvHomeLatencyStatus]
+
+    public init(service: any BsvHomeServiceStatusProtocol) {
+        self.service = service
+        endpoints = service.getEndpoints()
+        statusStates = Array(repeating: .loading, count: endpoints.count)
+    }
+
+    var title: String {
+        Localized.Transaction.status
+    }
+
+    var itemModels: [ServiceStatusItemViewModel] {
+        zip(endpoints, statusStates).map {
+            ServiceStatusItemViewModel(endpoint: $0, status: $1)
+        }
+    }
+}
+
+// MARK: - Actions
+
+extension ServiceStatusViewModel {
+    func load() async {
+        statusStates = Array(repeating: .loading, count: endpoints.count)
+
+        let service = service
+        await withTaskGroup(of: (Int, BsvHomeLatencyStatus).self) { group in
+            for (index, endpoint) in endpoints.enumerated() {
+                group.addTask {
+                    await (index, service.getEndpointStatus(url: endpoint.url))
+                }
+            }
+
+            for await (index, state) in group {
+                statusStates[index] = state
+            }
+        }
+    }
+}

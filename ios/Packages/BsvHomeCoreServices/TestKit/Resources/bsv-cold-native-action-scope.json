@@ -1,0 +1,23 @@
+{
+  "formatVersion": 1,
+  "wallet": {
+    "id": "single_bitcoinsv_1GzPsu2a1JSfeG8Z2st8WiGhU6tErcPZ5B",
+    "externalId": null,
+    "name": "Public cold action scope fixture",
+    "index": 0,
+    "type": "single",
+    "accounts": [
+      {
+        "chain": "bitcoinsv",
+        "address": "1GzPsu2a1JSfeG8Z2st8WiGhU6tErcPZ5B",
+        "derivationPath": "m/44'/236'/0'/0/0",
+        "extendedPublicKey": "xpub6D5bvq1ENuj1xmfU89CQrEXQ3gCsj2ZtraBkJ1hUAEokARYSgdUZ2Fhdb4mome8cdTMm6gNcyJn2TnoUc4nb95kgMgWbG6fednEm66RCheT"
+      }
+    ],
+    "isPinned": false,
+    "imageUrl": null,
+    "source": "import"
+  },
+  "addressRevision": 0,
+  "addressValue": "{\"version\":1,\"wallet_id\":\"single_bitcoinsv_1GzPsu2a1JSfeG8Z2st8WiGhU6tErcPZ5B\",\"account_xpub\":\"xpub6D5bvq1ENuj1xmfU89CQrEXQ3gCsj2ZtraBkJ1hUAEokARYSgdUZ2Fhdb4mome8cdTMm6gNcyJn2TnoUc4nb95kgMgWbG6fednEm66RCheT\",\"account_path\":\"m/44'/236'/0'\",\"cold_receive_count\":null,\"cold_selected_index\":null,\"receive_count\":10,\"selected_index\":0,\"records\":[{\"locator\":{\"branch\":\"receive\",\"index\":0},\"address\":\"1GzPsu2a1JSfeG8Z2st8WiGhU6tErcPZ5B\",\"status\":\"Unused\",\"confirmed_history\":false},{\"locator\":{\"branch\":\"receive\",\"index\":1},\"address\":\"1LFvXsESmQ8ikvTaYxKmuHW4owTzWKpXed\",\"status\":\"Unused\",\"confirmed_history\":false},{\"locator\":{\"branch\":\"receive\",\"index\":2},\"address\":\"16FV9LGiprW3DBnLpnhmPzn6fPYXUGRora\",\"status\":\"Unused\",\"confirmed_history\":false},{\"locator\":{\"branch\":\"receive\",\"index\":3},\"address\":\"198M8VoDmocZPcTwMvTgHju6h9nvzBqNuu\",\"status\":\"Unused\",\"confirmed_history\":false},{\"locator\":{\"branch\":\"receive\",\"index\":4},\"address\":\"1KKTxNsSfdcyHasnZMWdKVaRjfao3W1zwT\",\"status\":\"Unused\",\"confirmed_history\":false},{\"locator\":{\"branch\":\"receive\",\"index\":5},\"address\":\"1PLUWeXYS8xa9ELZE6EHBwwKLeVnTSD6ab\",\"status\":\"Unused\",\"confirmed_history\":false},{\"locator\":{\"branch\":\"receive\",\"index\":6},\"address\":\"12YCcgXqWJj8SsJjKvXnWa8JDYeLbwbe9S\",\"status\":\"Unused\",\"confirmed_history\":false},{\"locator\":{\"branch\":\"receive\",\"index\":7},\"address\":\"1JFxiy7ouVGQcaViD878JrVeg5J7URbu3Z\",\"status\":\"Unused\",\"confirmed_history\":false},{\"locator\":{\"branch\":\"receive\",\"index\":8},\"address\":\"1EYJshnb62pgDLDRHAhjnaQvJZRjLuJwuV\",\"status\":\"Unused\",\"confirmed_history\":false},{\"locator\":{\"branch\":\"receive\",\"index\":9},\"address\":\"14rh99aTRvMQALEKGXdPeuV49Jjeudtvmh\",\"status\":\"Unused\",\"confirmed_history\":false}],\"receive\":{\"next_index\":0,\"empty_count\":0,\"stopped\":false},\"change\":{\"next_index\":0,\"empty_count\":0,\"stopped\":false},\"discovery\":\"NotStarted\",\"reservations\":[]}"
+}

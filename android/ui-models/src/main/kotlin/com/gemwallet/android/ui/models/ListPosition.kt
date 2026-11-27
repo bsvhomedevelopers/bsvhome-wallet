@@ -1,0 +1,20 @@
+package com.gemwallet.android.ui.models
+
+enum class ListPosition {
+    Subhead,
+    First,
+    Middle,
+    Single,
+    Last;
+
+    companion object {
+        fun getPosition(index: Int, size: Int): ListPosition = if (size == 1)
+            Single
+        else
+            when (index) {
+            0 -> First
+            size - 1 -> Last
+            else -> Middle
+        }
+    }
+}

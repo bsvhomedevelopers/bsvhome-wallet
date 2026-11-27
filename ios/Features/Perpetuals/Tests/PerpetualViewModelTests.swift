@@ -1,0 +1,36 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+@testable import Perpetuals
+import PerpetualsTestKit
+import Primitives
+import PrimitivesTestKit
+import Testing
+
+struct PerpetualViewModelTests {
+    @Test
+    func name() {
+        #expect(PerpetualViewModel(perpetual: .mock(name: "BTC-PERP")).name == "BTC-PERP")
+    }
+
+    @Test
+    func volumeField() {
+        #expect(PerpetualViewModel(perpetual: .mock(volume24h: 1_500_000)).volumeField.value.text == "$1.5000M")
+    }
+
+    @Test
+    func openInterestField() {
+        #expect(PerpetualViewModel(perpetual: .mock(openInterest: 5_250_000)).openInterestField.value.text == "$5.2500M")
+    }
+
+    @Test
+    func fundingRateField() {
+        #expect(PerpetualViewModel(perpetual: .mock(funding: 0.0013)).fundingRateField.value.text == "+11.3880%")
+    }
+
+    @Test
+    func priceText() {
+        #expect(PerpetualViewModel(perpetual: .mock(price: 45000)).priceText == "$45,000.0000")
+        #expect(PerpetualViewModel(perpetual: .mock(price: 0.5)).priceText == "$0.5000")
+        #expect(PerpetualViewModel(perpetual: .mock(price: 1234.56)).priceText == "$1,234.5600")
+    }
+}

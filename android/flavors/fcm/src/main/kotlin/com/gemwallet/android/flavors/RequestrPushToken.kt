@@ -1,0 +1,21 @@
+package com.gemwallet.android.flavors
+
+import com.gemwallet.android.application.device.cases.RequestPushToken
+import com.google.firebase.messaging.FirebaseMessaging
+
+class StoreRequestPushToken : RequestPushToken {
+
+    override suspend fun requestToken(callback: (String) -> Unit) {
+        try {
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                val token = if (task.isSuccessful) { task.result } else { "" }
+                callback(token)
+            }
+        } catch (_: Throwable) {
+            callback("")
+        }
+    }
+
+}
+
+fun isNotificationsAvailable() = true

@@ -1,0 +1,175 @@
+use std::error::Error;
+
+use serde::de::DeserializeOwned;
+use serde_json::Value;
+
+use bsv_home_client::Client;
+use bsv_home_jsonrpc::client::JsonRpcClient;
+use bsv_home_jsonrpc::types::{ERROR_CLIENT_ERROR, JsonRpcError};
+use chain_traits::{ChainAddressStatus, ChainPerpetual, ChainProvider, ChainSimulation, ChainStaking, ChainTraits};
+use primitives::Chain;
+
+use crate::jsonrpc::XrpRpc;
+use crate::models::rpc::{
+    AccountInfo, AccountInfoResult, AccountLedger, AccountObjects, FeesResult, Ledger, LedgerData, LedgerInfo, ServerInfo, ServerInfoResult, TransactionBroadcast,
+    TransactionStatus,
+};
+
+#[derive(Clone, Debug)]
+pub struct XrpClient<C: Client + Clone> {
+    client: JsonRpcClient<C>,
+    pub chain: Chain,
+}
+
+impl<C: Client + Clone> XrpClient<C> {
+    pub fn new(client: JsonRpcClient<C>) -> Self {
+        Self { client, chain: Chain::Xrp }
+    }
+
+    pub fn get_chain(&self) -> Chain {
+        self.chain
+    }
+
+    async fn request<T>(&self, request: XrpRpc) -> Result<T, Box<dyn Error + Send + Sync>>
+    where
+        T: DeserializeOwned + Send,
+    {
+        let result: Value = self.client.request(request).await?;
+        deserialize_result(result)
+    }
+
+    pub async fn get_account_info(&self, address: &str) -> Result<Option<AccountInfo>, Box<dyn Error + Send + Sync>> {
+        let result = self.get_account_info_full(address).await?;
+        Ok(result.account_data)
+    }
+
+    pub async fn get_account_info_full(&self, address: &str) -> Result<AccountInfoResult, Box<dyn Error + Send + Sync>> {
+        self.request(XrpRpc::GetAccountInfo { address: address.to_string() }).await
+    }
+
+    pub async fn get_latest_validated_ledger(&self) -> Result<LedgerInfo, Box<dyn Error + Send + Sync>> {
+        let ledger: LedgerInfo = self.request(XrpRpc::GetLatestValidatedLedger).await?;
+        if !ledger.validated {
+            return Err("XRP RPC returned an unvalidated ledger".into());
+        }
+        Ok(ledger)
+    }
+
+    pub async fn get_server_info(&self) -> Result<ServerInfo, Box<dyn Error + Send + Sync>> {
+        Ok(self.request::<ServerInfoResult>(XrpRpc::GetServerInfo).await?.info)
+    }
+
+    pub async fn get_fees(&self) -> Result<FeesResult, Box<dyn Error + Send + Sync>> {
+        self.request(XrpRpc::GetFees).await
+    }
+
+    pub async fn broadcast_transaction(&self, data: &str) -> Result<TransactionBroadcast, Box<dyn Error + Send + Sync>> {
+        self.request(XrpRpc::SubmitTransaction { data: data.to_string() }).await
+    }
+
+    pub async fn get_transaction_status(&self, transaction_id: &str) -> Result<TransactionStatus, Box<dyn Error + Send + Sync>> {
+        self.get_transaction(transaction_id).await
+    }
+
+    pub(crate) async fn get_transaction<T>(&self, transaction_id: &str) -> Result<T, Box<dyn Error + Send + Sync>>
+    where
+        T: DeserializeOwned + Send,
+    {
+        self.request(XrpRpc::GetTransaction { hash: transaction_id.to_string() }).await
+    }
+
+    pub async fn get_account_objects(&self, address: &str) -> Result<AccountObjects, Box<dyn Error + Send + Sync>> {
+        self.request(XrpRpc::GetAccountObjects { address: address.to_string() }).await
+    }
+
+    pub async fn get_block_transactions(&self, block_number: u64) -> Result<Ledger, Box<dyn Error + Send + Sync>> {
+        Ok(self.request::<LedgerData>(XrpRpc::GetLedger { index: block_number }).await?.ledger)
+    }
+
+    pub async fn get_account_transactions(&self, address: String, limit: usize) -> Result<AccountLedger, Box<dyn Error + Send + Sync>> {
+        self.request(XrpRpc::GetAccountTransactions { address, limit }).await
+    }
+}
+
+fn deserialize_result<T>(result: Value) -> Result<T, Box<dyn Error + Send + Sync>>
+where
+    T: DeserializeOwned,
+{
+    if let Some(error) = map_error_result(&result) {
+        return Err(Box::new(error));
+    }
+
+    Ok(serde_json::from_value(result)?)
+}
+
+fn map_error_result(result: &Value) -> Option<JsonRpcError> {
+    if result.get("status").and_then(Value::as_str) != Some("error") {
+        return None;
+    }
+
+    let code = result
+        .get("error_code")
+        .and_then(Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())
+        .unwrap_or(ERROR_CLIENT_ERROR);
+    let error = result.get("error").and_then(Value::as_str);
+    let error_message = result.get("error_message").and_then(Value::as_str);
+    let message = match (error, error_message) {
+        (Some(error), Some(error_message)) if error != error_message => format!("{error}: {error_message}"),
+        (Some(error), _) => error.to_string(),
+        (None, Some(error_message)) => error_message.to_string(),
+        (None, None) => "XRP RPC error".to_string(),
+    };
+
+    Some(JsonRpcError { code, message, cause: None })
+}
+
+impl<C: Client + Clone> ChainStaking for XrpClient<C> {}
+
+impl<C: Client + Clone> ChainPerpetual for XrpClient<C> {}
+
+impl<C: Client + Clone> ChainAddressStatus for XrpClient<C> {}
+
+impl<C: Client + Clone> chain_traits::ChainAccount for XrpClient<C> {}
+
+impl<C: Client + Clone> ChainSimulation for XrpClient<C> {}
+
+impl<C: Client + Clone> ChainTraits for XrpClient<C> {}
+
+impl<C: Client + Clone> ChainProvider for XrpClient<C> {
+    fn get_chain(&self) -> Chain {
+        self.chain
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::method;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn test_deserialize_result() {
+        let ledger = deserialize_result::<LedgerInfo>(json!({
+            "ledger_index": 80123456,
+            "validated": true,
+            "status": "success"
+        }))
+        .unwrap();
+        assert_eq!(ledger.ledger_index, 80123456);
+        assert!(ledger.validated);
+
+        let error = deserialize_result::<LedgerInfo>(json!({
+            "error": "amendmentBlocked",
+            "error_code": 14,
+            "error_message": "Amendment blocked, need upgrade.",
+            "request": {
+                "command": method::LEDGER
+            },
+            "status": "error"
+        }))
+        .unwrap_err();
+        assert_eq!(error.to_string(), "amendmentBlocked: Amendment blocked, need upgrade. (14)");
+    }
+}

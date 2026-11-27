@@ -1,0 +1,180 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import FiatConnect
+import struct BsvHomeCore.BsvHomeTransferData
+import BsvHomeCorePrimitives
+import InfoSheet
+import Perpetuals
+import Primitives
+import PrimitivesComponents
+import Style
+import Swap
+import SwiftUI
+import Transfer
+
+struct ConfirmTransferNavigationView: View {
+    @Environment(\.viewModelFactory) private var viewModelFactory
+    @Environment(\.navigationState) private var navigationState
+
+    @State var model: ConfirmTransferSceneViewModel
+    @State private var trxExchangeWalletId: WalletId?
+
+    var body: some View {
+        Group {
+            if let receipt = model.bsvReceipt {
+                BsvSendSuccessScene(recipient: receipt.recipient, amountText: receipt.amountText, transactionId: receipt.transactionId) {
+                    model.completeBsvReceipt()
+                    navigationState.selectedTab = .wallet
+                }
+            } else {
+                ConfirmTransferScene(model: model)
+            }
+        }
+        .sheet(item: $model.isPresentingSheet, onDismiss: refreshAfterTrxExchange) {
+            switch $0 {
+            case let .info(type):
+                InfoSheetScene(type: type)
+            case let .url(url):
+                SFSafariView(url: url)
+            case .networkFeeSelector:
+                NetworkFeeSheet(model: model.feeModel)
+            case .payloadDetails:
+                NavigationStack {
+                    SimulationPayloadDetailsScene(
+                        primaryFields: model.payloadModel.primaryFields,
+                        secondaryFields: model.payloadModel.secondaryFields,
+                        fieldViewModel: model.payloadModel.fieldViewModel(for:),
+                        contextMenuItems: model.contextMenuItems(for:),
+                    )
+                    .presentationDetents([.large])
+                    .presentationBackground(Colors.grayBackground)
+                }
+            case let .fiatConnect(assetAddress, wallet, amount):
+                NavigationStack {
+                    FiatConnectNavigationView(
+                        model: viewModelFactory.fiatScene(assetAddress: assetAddress, wallet: wallet, amount: amount),
+                    )
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarDismissItem(type: .close, placement: .topBarLeading)
+                }
+            case let .getAsset(asset, buyAmount):
+                GetAssetNavigationStack(
+                    asset: asset,
+                    buyAmount: buyAmount,
+                    model: model,
+                    viewModelFactory: viewModelFactory,
+                )
+            case .trxExchange:
+                TrxAcquisitionNavigationStack(wallet: model.assetAcquisitionWallet, viewModelFactory: viewModelFactory)
+                    .onAppear { trxExchangeWalletId = model.assetAcquisitionWallet.id }
+            case let .receive(assetAddress, wallet):
+                NavigationStack {
+                    ReceiveNavigationView(model: viewModelFactory.receiveScene(assetAddress: assetAddress, wallet: wallet), wallet: wallet)
+                        .toolbarDismissItem(type: .close, placement: .topBarLeading)
+                }
+            case let .selectedAsset(input, wallet):
+                SelectedAssetNavigationStack(
+                    input: input,
+                    wallet: wallet,
+                    onComplete: { model.isPresentingSheet = nil },
+                )
+            case .swapDetails:
+                if case let .swapDetails(model) = model.detailsViewModel.itemModel {
+                    NavigationStack {
+                        SwapDetailsView(model: Bindable(model))
+                            .presentationDetentsForCurrentDeviceSize(expandable: true)
+                            .presentationBackground(Colors.grayBackground)
+                    }
+                }
+            case let .perpetualDetails(model):
+                NavigationStack {
+                    PerpetualDetailsView(model: model)
+                        .presentationDetentsForCurrentDeviceSize(expandable: true)
+                        .presentationBackground(Colors.grayBackground)
+                }
+            }
+        }
+    }
+
+    private func refreshAfterTrxExchange() {
+        guard model.isPresentingSheet == nil, let walletId = trxExchangeWalletId else { return }
+        trxExchangeWalletId = nil
+        guard viewModelFactory.walletSessionService.currentWalletId == walletId else { return }
+        Task { await model.refreshAfterTrxExchange() }
+    }
+}
+
+private struct GetAssetNavigationStack: View {
+    private static let optionsDetent = PresentationDetent.height(360)
+
+    let asset: Asset
+    let buyAmount: Int?
+    let model: ConfirmTransferSceneViewModel
+    let viewModelFactory: ViewModelFactory
+
+    @State private var selectedAction: GetAssetAction?
+    @State private var actionNavigationPath = NavigationPath()
+
+    var body: some View {
+        NavigationStack {
+            GetAssetScene(
+                asset: asset,
+                onSelect: {
+                    actionNavigationPath = NavigationPath()
+                    selectedAction = $0
+                },
+            )
+            .toolbarDismissItem(type: .close, placement: .topBarLeading)
+            .presentationDetents([Self.optionsDetent])
+            .presentationBackground(Colors.grayBackground)
+            .sheet(item: $selectedAction) { action in
+                NavigationStack(path: $actionNavigationPath) {
+                    destination(for: action)
+                        .toolbarDismissItem(type: .close, placement: .topBarLeading)
+                        .navigationBarTitleDisplayMode(.inline)
+                        .navigationDestination(for: BsvHomeTransferData.self) { data in
+                            ConfirmTransferNavigationView(
+                                model: viewModelFactory.confirmTransferScene(
+                                    wallet: model.assetAcquisitionWallet,
+                                    data: data,
+                                    onComplete: { model.isPresentingSheet = nil },
+                                ),
+                            )
+                        }
+                }
+                .presentationDetents([.large])
+                .presentationBackground(Colors.grayBackground)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func destination(for type: GetAssetAction) -> some View {
+        switch type {
+        case .buy:
+            FiatConnectNavigationView(
+                model: viewModelFactory.fiatScene(
+                    assetAddress: model.assetAddress(asset),
+                    wallet: model.assetAcquisitionWallet,
+                    amount: buyAmount,
+                ),
+            )
+        case .swap:
+            SwapNavigationView(
+                model: viewModelFactory.swapScene(
+                    input: SwapInput(
+                        wallet: model.assetAcquisitionWallet,
+                        pairSelector: SwapPairSelectorViewModel(
+                            fromAssetId: model.swapFromAsset(to: asset).id,
+                            toAssetId: asset.id,
+                        ),
+                    ),
+                    onSwap: { actionNavigationPath.append($0) },
+                ),
+            )
+        case .receive:
+            ReceiveNavigationView(model: viewModelFactory.receiveScene(assetAddress: model.assetAddress(asset), wallet: model.assetAcquisitionWallet), wallet: model.assetAcquisitionWallet)
+        }
+    }
+}

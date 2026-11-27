@@ -1,0 +1,18 @@
+{
+  "quoteId": "Q-test",
+  "fromChain": "BSV",
+  "fromKind": "NATIVE",
+  "fromContract": "",
+  "toChain": "TRON",
+  "toKind": "TOKEN",
+  "toContract": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+  "fromAmount": "150000000",
+  "estimatedToAmount": "12345678",
+  "minFromAmount": "10000000",
+  "maxFromAmount": null,
+  "providerCode": "TEST_PROVIDER",
+  "providerDisplayName": "Test provider",
+  "floatingRate": true,
+  "expiresAt": "2026-09-27T09:13:00Z",
+  "quoteNature": "ESTIMATED"
+}

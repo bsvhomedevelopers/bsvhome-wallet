@@ -1,0 +1,31 @@
+use async_trait::async_trait;
+use bsv_home_client::Client;
+use chain_traits::ChainAccount;
+
+pub mod balances;
+pub mod balances_mapper;
+pub mod fee_calculator;
+pub mod perpetual;
+pub mod perpetual_mapper;
+pub mod preload;
+pub mod preload_cache;
+pub mod request_classifier;
+pub mod staking;
+pub mod staking_mapper;
+pub mod state;
+pub mod testkit;
+pub mod token;
+pub mod transaction_broadcast;
+pub mod transaction_state;
+pub mod transaction_state_mapper;
+pub mod transactions;
+pub mod transactions_mapper;
+pub mod websocket_mapper;
+pub mod websocket_subscriptions;
+
+pub struct BroadcastProvider;
+
+use crate::rpc::client::HyperCoreClient;
+
+#[async_trait]
+impl<C: Client> ChainAccount for HyperCoreClient<C> {}

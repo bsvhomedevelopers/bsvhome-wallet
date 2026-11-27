@@ -1,0 +1,21 @@
+[package]
+name = "bsv_home_optimism"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+default = []
+rpc = ["bsv_home_evm/rpc", "dep:async-trait", "dep:bsv_home_client", "dep:alloy-sol-types"]
+
+[dependencies]
+primitives = { path = "../primitives" }
+bsv_home_evm = { path = "../bsv_home_evm" }
+
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+async-trait = { workspace = true, optional = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true, optional = true }
+num-bigint = { workspace = true }
+
+[dev-dependencies]
+primitives = { path = "../primitives", features = ["testkit"] }

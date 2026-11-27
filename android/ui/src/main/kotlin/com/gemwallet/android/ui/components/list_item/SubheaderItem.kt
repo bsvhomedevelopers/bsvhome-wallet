@@ -1,0 +1,120 @@
+package com.gemwallet.android.ui.components.list_item
+
+import androidx.annotation.StringRes
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.gemwallet.android.ui.icons.AppIcons
+import com.gemwallet.android.ui.theme.compactIconSize
+import com.gemwallet.android.ui.theme.paddingHalfSmall
+import com.gemwallet.android.ui.theme.paddingSmall
+
+@Composable
+fun SubheaderItem(@StringRes title: Int, vararg formatArgs: Any) {
+    SubheaderItem(stringResource(title, formatArgs))
+}
+
+@Composable
+fun SubheaderItem(title: String, modifier: Modifier = Modifier) {
+    Text(
+        modifier = modifier
+            .sectionHeaderItem(),
+        text = title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.secondary,
+    )
+}
+
+@Composable
+fun SubheaderItem(@StringRes title: Int, onClick: (() -> Unit)?) {
+    SubheaderItem(title = stringResource(title), onClick = onClick)
+}
+
+private val subheaderTopPadding = paddingSmall
+private val subheaderHighlightPaddingHorizontal = paddingSmall
+private val subheaderHighlightPaddingVertical = paddingHalfSmall
+
+@Composable
+fun SubheaderItem(title: String, onClick: (() -> Unit)?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                top = subheaderTopPadding - subheaderHighlightPaddingVertical,
+                start = sectionHeaderHorizontalPadding - subheaderHighlightPaddingHorizontal,
+                end = sectionHeaderHorizontalPadding - subheaderHighlightPaddingHorizontal,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(paddingSmall))
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(
+                    horizontal = subheaderHighlightPaddingHorizontal,
+                    vertical = subheaderHighlightPaddingVertical,
+                )
+                .heightIn(min = ChevronIconDefaults.size),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            if (onClick != null) {
+                ChevronIcon()
+            }
+        }
+    }
+}
+
+object ChevronIconDefaults {
+    val horizontalPaddingTrim: Dp = 2.dp
+    val horizontalNudge: Dp = 4.dp
+    val leadingSpacing: Dp = 0.dp
+    val size: Dp = compactIconSize + 4.dp
+}
+
+@Composable
+fun ChevronIcon(
+    modifier: Modifier = Modifier,
+    size: Dp = ChevronIconDefaults.size,
+    tint: Color = MaterialTheme.colorScheme.secondary,
+) {
+    val width = size - ChevronIconDefaults.horizontalPaddingTrim - ChevronIconDefaults.horizontalPaddingTrim
+    Box(
+        modifier = modifier
+            .width(width)
+            .height(size),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = AppIcons.KeyboardArrowRight,
+            contentDescription = null,
+            modifier = Modifier
+                .offset(x = ChevronIconDefaults.horizontalNudge)
+                .requiredSize(size),
+            tint = tint,
+        )
+    }
+}

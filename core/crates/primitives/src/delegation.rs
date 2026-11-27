@@ -1,0 +1,115 @@
+use chrono::{DateTime, Utc};
+use num_bigint::BigUint;
+use serde::{Deserialize, Serialize};
+use serde_serializers::{deserialize_biguint_from_str, serialize_biguint};
+use strum::{AsRefStr, Display, EnumString};
+use typeshare::typeshare;
+
+use crate::stake_provider_type::StakeProviderType;
+use crate::{AssetId, Chain, StakeValidator};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Delegation {
+    pub base: DelegationBase,
+    pub validator: DelegationValidator,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationBase {
+    pub asset_id: AssetId,
+    pub state: DelegationState,
+    #[serde(serialize_with = "serialize_biguint", deserialize_with = "deserialize_biguint_from_str")]
+    pub balance: BigUint,
+    #[serde(serialize_with = "serialize_biguint", deserialize_with = "deserialize_biguint_from_str")]
+    pub shares: BigUint,
+    #[serde(serialize_with = "serialize_biguint", deserialize_with = "deserialize_biguint_from_str")]
+    pub rewards: BigUint,
+    pub completion_date: Option<DateTime<Utc>>,
+    pub delegation_id: String,
+    pub validator_id: String,
+}
+
+impl DelegationBase {
+    pub fn id(&self) -> String {
+        [
+            self.asset_id.to_string(),
+            self.validator_id.clone(),
+            self.state.as_ref().to_string(),
+            self.delegation_id.clone(),
+        ]
+        .join("_")
+    }
+
+    pub fn total_active_balance(delegations: &[Self]) -> BigUint {
+        delegations
+            .iter()
+            .filter(|d| d.state == DelegationState::Active)
+            .fold(BigUint::from(0u32), |acc, d| acc + &d.balance)
+    }
+
+    pub fn total_active_rewards(delegations: &[Self]) -> BigUint {
+        delegations
+            .iter()
+            .filter(|d| d.state == DelegationState::Active)
+            .fold(BigUint::from(0u32), |acc, d| acc + &d.rewards)
+    }
+}
+
+impl From<DelegationValidator> for StakeValidator {
+    fn from(value: DelegationValidator) -> Self {
+        StakeValidator::new(value.id, value.name)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[typeshare(swift = "Equatable, Hashable, Sendable")]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationValidator {
+    pub chain: Chain,
+    pub id: String,
+    pub name: String,
+    pub is_active: bool,
+    pub commission: f64,
+    pub apr: f64,
+    pub provider_type: StakeProviderType,
+}
+
+impl DelegationValidator {
+    pub const SYSTEM_ID: &str = "system";
+    pub const SYSTEM_NAME: &str = "Unstaking";
+
+    pub fn stake(chain: Chain, id: String, name: String, is_active: bool, commission: f64, apr: f64) -> Self {
+        Self {
+            chain,
+            id,
+            name,
+            is_active,
+            commission,
+            apr,
+            provider_type: StakeProviderType::Stake,
+        }
+    }
+
+    pub fn system(chain: Chain) -> Self {
+        Self::stake(chain, Self::SYSTEM_ID.to_string(), Self::SYSTEM_NAME.to_string(), true, 0.0, 0.0)
+    }
+
+    pub fn is_system_id(id: &str) -> bool {
+        id == Self::SYSTEM_ID || id == "unstaking"
+    }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Display, AsRefStr, EnumString, PartialEq)]
+#[typeshare(swift = "Equatable, CaseIterable, Sendable")]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum DelegationState {
+    Active,
+    Pending,
+    Inactive,
+    Activating,
+    Deactivating,
+    AwaitingWithdrawal,
+}

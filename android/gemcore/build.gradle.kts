@@ -1,0 +1,67 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
+
+plugins {
+    id("com.android.library")
+    id("kotlinx-serialization")
+}
+
+android {
+    namespace = "com.wallet.core"
+    compileSdk = 37
+    
+    defaultConfig {
+        minSdk = 28
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles("consumer-rules.pro")
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    tasks.withType<KotlinJvmCompile>().configureEach {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+            freeCompilerArgs.add("-opt-in=kotlin.RequiresOptIn")
+        }
+    }
+    testFixtures {
+        enable = true
+    }
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+    packaging {
+        resources {
+            excludes += "META-INF/*"
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE-notice.md"
+            excludes += "/META-INF/LICENSE.md"
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
+}
+
+dependencies {
+    api(project(":gemstone"))
+
+    api(libs.kotlinx.serialization.json)
+    implementation(libs.compose.runtime.android)
+
+    testImplementation(testFixtures(project(":gemcore")))
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(libs.junit)
+}

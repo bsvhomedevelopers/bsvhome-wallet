@@ -1,0 +1,28 @@
+[package]
+name = "prices"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+
+coingecko = { path = "../coingecko" }
+bsv_home_client = { path = "../bsv_home_client", features = ["reqwest"] }
+bsv_home_tracing = { path = "../tracing" }
+bsv_home_ton = { path = "../bsv_home_ton" }
+jupiter = { path = "../jupiter" }
+primitives = { path = "../primitives" }
+serde_serializers = { path = "../serde_serializers" }
+
+[dev-dependencies]
+coingecko = { path = "../coingecko", features = ["testkit"] }
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+serde_json = { workspace = true }
+settings = { path = "../settings", features = ["testkit"] }
+
+[features]
+default = []
+price_integration_tests = []

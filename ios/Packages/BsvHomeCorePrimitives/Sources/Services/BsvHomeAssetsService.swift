@@ -1,0 +1,23 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import protocol BsvHomeCore.BsvHomeAssetsServiceProtocol
+import Primitives
+
+public extension BsvHomeAssetsServiceProtocol {
+    func ensureAsset(for assetId: Primitives.AssetId) async throws -> Primitives.Asset {
+        try await ensureAsset(assetId: assetId.identifier).map()
+    }
+
+    func openWalletAsset(wallet: Primitives.Wallet, assetId: Primitives.AssetId) async throws -> Primitives.Asset? {
+        try await openWalletAsset(wallet: wallet.map(), assetId: assetId.identifier).map { $0.map() }
+    }
+
+    func openAsset(for assetId: Primitives.AssetId) async throws -> Primitives.Asset? {
+        try await openAsset(assetId: assetId.identifier).map { $0.map() }
+    }
+
+    func ensureTokenAsset(for assetId: Primitives.AssetId) async throws -> Primitives.Asset {
+        try await ensureTokenAsset(assetId: assetId.identifier).map()
+    }
+}

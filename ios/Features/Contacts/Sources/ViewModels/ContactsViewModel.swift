@@ -1,0 +1,122 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import protocol BsvHomeCore.BsvHomeContactServiceProtocol
+import struct BsvHomeCore.BsvHomeContactAddressInput
+import Components
+import struct BsvHomeCore.BsvHomeRecipient
+import BsvHomeCoreServices
+import Foundation
+import Localization
+import BsvHomeCorePrimitives
+import Primitives
+import PrimitivesComponents
+import Store
+import Style
+import SwiftUI
+
+@Observable
+@MainActor
+public final class ContactsViewModel {
+    public enum Mode: Sendable {
+        case list
+        case addAddress(BsvHomeRecipient, chain: Chain)
+    }
+
+    enum RowAction {
+        case navigate
+        case select
+    }
+
+    private let service: any BsvHomeContactServiceProtocol
+    private let manageContact: @MainActor (ManageContactViewModel.Mode) -> ManageContactViewModel
+    private let mode: Mode
+
+    var isPresentingAlertMessage: AlertMessage?
+
+    public let query: ObservableQuery<ContactsRequest>
+    var contacts: [ContactData] {
+        query.value
+    }
+
+    var isPresentingAddContact = false
+
+    public init(
+        service: any BsvHomeContactServiceProtocol,
+        manageContact: @escaping @MainActor (ManageContactViewModel.Mode) -> ManageContactViewModel,
+        mode: Mode = .list,
+    ) {
+        self.service = service
+        self.manageContact = manageContact
+        self.mode = mode
+        query = ObservableQuery(ContactsRequest(), initialValue: [])
+    }
+
+    var title: String {
+        Localized.Contacts.title
+    }
+
+    var rowAction: RowAction {
+        switch mode {
+        case .list: .navigate
+        case .addAddress: .select
+        }
+    }
+
+    func manageContactModel(mode: ManageContactViewModel.Mode) -> ManageContactViewModel {
+        manageContact(mode)
+    }
+
+    var addContactMode: ManageContactViewModel.Mode {
+        switch mode {
+        case .list: .add()
+        case let .addAddress(recipient, chain): .add(recipient: recipient, chain: chain)
+        }
+    }
+
+    func onSelect(contact: ContactData, dismiss: DismissAction) {
+        guard case let .addAddress(recipient, chain) = mode else { return }
+        Task {
+            do {
+                let addresses = BsvHomeContactAddressInput(
+                    contactId: contact.contact.id,
+                    chain: chain,
+                    address: recipient.address,
+                    memo: recipient.memo,
+                    replacingId: nil,
+                ).addAddress(contact.addresses)
+                try await service.updateContact(contact.contact, addresses: addresses)
+                dismiss()
+            } catch {
+                isPresentingAlertMessage = AlertMessage(error: error)
+            }
+        }
+    }
+
+    var emptyContent: EmptyContentTypeViewModel {
+        EmptyContentTypeViewModel(type: .contacts)
+    }
+
+    func listItemModel(for contact: ContactData) -> ListItemModel {
+        ListItemModel(
+            title: contact.contact.name,
+            titleStyle: TextStyle(font: .body, color: .primary, fontWeight: .semibold),
+            titleExtra: contact.contact.description,
+            titleStyleExtra: .calloutSecondary,
+            titleExtraLineLimit: 1,
+            imageStyle: .asset(assetImage: contact.contact.avatarImage),
+        )
+    }
+
+    func deleteContacts(at offsets: IndexSet) {
+        let selected = offsets.map { contacts[$0].contact }
+        Task {
+            do {
+                for contact in selected {
+                    try await service.deleteContact(contact)
+                }
+            } catch {
+                isPresentingAlertMessage = AlertMessage(error: error)
+            }
+        }
+    }
+}

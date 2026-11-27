@@ -1,0 +1,15 @@
+[package]
+name = "nodecheck"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+
+chain_traits = { path = "../../crates/chain_traits" }
+bsv_home_client = { path = "../../crates/bsv_home_client", features = ["reqwest"] }
+bsv_home_tracing = { path = "../../crates/tracing" }
+primitives = { path = "../../crates/primitives" }
+settings_chain = { path = "../../crates/settings_chain" }

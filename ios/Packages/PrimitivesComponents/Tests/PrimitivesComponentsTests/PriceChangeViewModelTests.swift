@@ -1,0 +1,32 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+@testable import PrimitivesComponents
+import PrimitivesComponentsTestKit
+import Style
+import Testing
+
+struct PriceChangeViewModelTests {
+    @Test
+    func textPositive() {
+        #expect(PriceChangeViewModel.mock(value: 100).text == "+$100.0000")
+        #expect(PriceChangeViewModel.mock(value: 0).text == "+$0.0000")
+    }
+
+    @Test
+    func textNegative() {
+        #expect(PriceChangeViewModel.mock(value: -50).text == "-$50.0000")
+    }
+
+    @Test
+    func textNil() {
+        #expect(PriceChangeViewModel.mock(value: nil).text == nil)
+    }
+
+    @Test
+    func color() {
+        #expect(PriceChangeViewModel.mock(value: 100).color == Colors.green)
+        #expect(PriceChangeViewModel.mock(value: -50).color == Colors.red)
+        #expect(PriceChangeViewModel.mock(value: 0).color == Colors.gray)
+        #expect(PriceChangeViewModel.mock(value: nil).color == .secondary)
+    }
+}

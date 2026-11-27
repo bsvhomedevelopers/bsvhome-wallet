@@ -1,0 +1,149 @@
+use crate::models::custom_types::BsvHomeBigInt;
+use crate::models::transaction::{BsvHomeTransactionLoadFee, BsvHomeTransactionLoadMetadata};
+use primitives::TransactionInputType;
+use primitives::{AssetId, PerpetualDirection, RecentActivityType, Resource, SimulationResult, TransactionType, TransferDataOutputAction, TransferDataOutputType};
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct BsvHomeRecentActivity {
+    pub activity_type: RecentActivityType,
+    pub asset_id: AssetId,
+    pub to_asset_id: Option<AssetId>,
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct BsvHomeRecipient {
+    pub address: String,
+    #[uniffi(default = None)]
+    pub name: Option<String>,
+    #[uniffi(default = None)]
+    pub memo: Option<String>,
+    #[uniffi(default = [])]
+    pub references: Vec<String>,
+}
+
+#[uniffi::export]
+impl BsvHomeTransferData {
+    pub fn identifier(&self) -> String {
+        [self.input_type.get_asset().chain().as_ref(), &self.recipient.address, &self.value.to_string()].join("-")
+    }
+}
+
+#[uniffi::export]
+impl BsvHomeRecipient {
+    pub fn identifier(&self) -> String {
+        [self.name.as_deref().unwrap_or_default(), &self.address, self.memo.as_deref().unwrap_or_default()].join("_")
+    }
+}
+
+impl BsvHomeRecipient {
+    pub fn address(address: String) -> Self {
+        Self {
+            address,
+            name: None,
+            memo: None,
+            references: Vec::new(),
+        }
+    }
+
+    pub fn named(address: String, name: String) -> Self {
+        Self {
+            name: Some(name),
+            ..Self::address(address)
+        }
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BsvHomeTransferData {
+    pub input_type: TransactionInputType,
+    pub recipient: BsvHomeRecipient,
+    pub value: BsvHomeBigInt,
+    #[uniffi(default = false)]
+    pub use_max_amount: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct BsvHomeTransferOutput {
+    pub output_type: TransferDataOutputType,
+    pub output_action: TransferDataOutputAction,
+}
+
+pub(crate) struct BsvHomePendingTransactionInput {
+    pub(crate) sender: String,
+    pub(crate) transfer: BsvHomeTransferData,
+    pub(crate) value: BsvHomeBigInt,
+    pub(crate) transaction_type: TransactionType,
+    pub(crate) hash: String,
+    pub(crate) fee: BsvHomeTransactionLoadFee,
+    pub(crate) network_fee: BsvHomeBigInt,
+    pub(crate) metadata: BsvHomeTransactionLoadMetadata,
+    pub(crate) simulation: Option<SimulationResult>,
+    pub(crate) transaction_index: u32,
+    pub(crate) transaction_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum BsvHomeConfirmTitle {
+    Send,
+    Deposit,
+    Withdraw,
+    Swap,
+    Approve,
+    Request,
+    Stake,
+    Unstake,
+    Redelegate,
+    ClaimRewards,
+    Freeze,
+    Unfreeze,
+    ActivateAsset,
+    PerpetualOpen { direction: PerpetualDirection },
+    PerpetualIncrease { direction: PerpetualDirection },
+    PerpetualReduce { direction: PerpetualDirection },
+    PerpetualClose,
+    PerpetualModify,
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum BsvHomeConfirmDestination {
+    Recipient { name: Option<String>, address: String },
+    Contract { address: String },
+    Validator { name: String, address: String },
+    Resource { resource: Resource },
+    Provider { name: String, address: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_transfer_identifier_separates_transfers_by_chain_recipient_and_value() {
+        let transfer = |address: &str, value: i32| BsvHomeTransferData {
+            input_type: TransactionInputType::Transfer {
+                asset: primitives::Asset::from_chain(primitives::Chain::Bitcoin),
+            },
+            recipient: BsvHomeRecipient::address(address.to_string()),
+            value: value.into(),
+            use_max_amount: false,
+        };
+
+        assert_eq!(transfer("bc1q", 10).identifier(), "bitcoin-bc1q-10");
+        assert_ne!(transfer("bc1q", 10).identifier(), transfer("bc1q", 11).identifier());
+        assert_ne!(transfer("bc1q", 10).identifier(), transfer("bc1r", 10).identifier());
+    }
+
+    #[test]
+    fn test_recipient_identifier_separates_a_named_recipient_from_a_bare_address() {
+        let recipient = |name: Option<&str>, address: &str, memo: Option<&str>| BsvHomeRecipient {
+            address: address.to_string(),
+            name: name.map(str::to_string),
+            memo: memo.map(str::to_string),
+            references: Vec::new(),
+        };
+
+        assert_eq!(recipient(Some("Alice"), "0xabc", Some("order 7")).identifier(), "Alice_0xabc_order 7");
+        assert_eq!(recipient(None, "0xabc", None).identifier(), "_0xabc_");
+        assert_ne!(recipient(Some("Alice"), "0xabc", None).identifier(), recipient(None, "0xabc", None).identifier());
+    }
+}

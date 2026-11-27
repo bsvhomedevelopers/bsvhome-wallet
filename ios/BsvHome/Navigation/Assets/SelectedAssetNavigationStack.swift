@@ -1,0 +1,123 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import FiatConnect
+import BsvHomeCorePrimitives
+import Primitives
+import PrimitivesComponents
+import Swap
+import SwiftUI
+import Transfer
+import struct BsvHomeCore.BsvHomeTransferData
+
+struct SelectedAssetNavigationStack: View {
+    @Environment(\.viewModelFactory) private var viewModelFactory
+    @Environment(\.navigationPresenter) private var presenter
+
+    @State private var navigationPath = NavigationPath()
+
+    private let input: SelectedAssetInput
+    private let wallet: Wallet
+    private let onComplete: VoidAction
+
+    init(
+        input: SelectedAssetInput,
+        wallet: Wallet,
+        onComplete: VoidAction,
+    ) {
+        self.input = input
+        self.wallet = wallet
+        self.onComplete = onComplete
+    }
+
+    var body: some View {
+        NavigationStack(path: $navigationPath) {
+            Group {
+                switch input.type {
+                case let .send(type):
+                    RecipientNavigationView(
+                        model: viewModelFactory.recipientScene(
+                            wallet: wallet,
+                            asset: input.asset,
+                            type: type,
+                            recipient: input.recipient,
+                            onRecipientDataAction: {
+                                navigationPath.append($0)
+                            },
+                            onTransferAction: {
+                                navigationPath.append($0)
+                            },
+                        ),
+                    )
+                case .receive:
+                    ReceiveNavigationView(model: viewModelFactory.receiveScene(assetData: input.assetData, wallet: wallet), wallet: wallet)
+                case let .buy(_, amount):
+                    FiatConnectNavigationView(
+                        model: viewModelFactory.fiatScene(
+                            assetAddress: input.assetAddress,
+                            wallet: wallet,
+                            type: .buy,
+                            amount: amount,
+                        ),
+                    )
+                case let .sell(_, amount):
+                    FiatConnectNavigationView(
+                        model: viewModelFactory.fiatScene(
+                            assetAddress: input.assetAddress,
+                            wallet: wallet,
+                            type: .sell,
+                            amount: amount,
+                        ),
+                    )
+                case let .swap(fromAsset, toAsset):
+                    SwapNavigationView(
+                        model: viewModelFactory.swapScene(
+                            input: SwapInput(
+                                wallet: wallet,
+                                pairSelector: SwapPairSelectorViewModel(
+                                    fromAssetId: fromAsset.id,
+                                    toAssetId: toAsset?.id,
+                                ),
+                            ),
+                            onSwap: {
+                                navigationPath.append($0)
+                            },
+                        ),
+                    )
+                case .stake:
+                    StakeNavigationView(
+                        model: viewModelFactory.stakeScene(
+                            wallet: wallet,
+                            chain: input.asset.id.chain,
+                        ),
+                        navigationPath: $navigationPath,
+                    )
+                case .earn:
+                    #if DEBUG
+                        EarnNavigationView(
+                            wallet: wallet,
+                            asset: input.asset,
+                            viewModelFactory: viewModelFactory,
+                            navigationPath: $navigationPath,
+                        )
+                    #else
+                        EmptyView()
+                    #endif
+                }
+            }
+            .toolbarDismissItem(type: .close, placement: .topBarLeading)
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: BsvHomeTransferData.self) { data in
+                ConfirmTransferNavigationView(
+                    model: viewModelFactory.confirmTransferScene(
+                        wallet: wallet,
+                        data: data,
+                        onComplete: onComplete,
+                    ),
+                )
+            }
+            .taskOnce {
+                presenter.recordRecent(input: input)
+            }
+        }
+    }
+}

@@ -1,0 +1,15 @@
+[package]
+name = "coinmarketcap"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+bsv_home_client = { path = "../bsv_home_client", features = ["reqwest"] }
+primitives = { path = "../primitives" }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }

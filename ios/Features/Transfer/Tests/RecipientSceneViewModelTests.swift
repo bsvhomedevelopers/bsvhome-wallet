@@ -1,0 +1,209 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import struct BsvHomeCore.BsvHomePaymentRecipient
+import struct BsvHomeCore.BsvHomeRecipient
+import enum BsvHomeCore.BsvHomeRecipientType
+import struct BsvHomeCore.BsvHomeTransferData
+import BsvHomeCorePrimitives
+import BsvHomeCorePrimitivesTestKit
+import Components
+import Primitives
+import PrimitivesTestKit
+import Testing
+@testable import Transfer
+import class BsvHomeCore.BsvHomeNameService
+import class BsvHomeCore.BsvHomeRecipientService
+import BsvHomeCoreServicesTestKit
+
+@MainActor
+struct RecipientSceneViewModelTests {
+    @Test
+    func tittle() {
+        #expect(RecipientSceneViewModel.mock().tittle == "Recipient")
+    }
+
+    @Test
+    func recipientField() {
+        #expect(RecipientSceneViewModel.mock().recipientField == "Address or Name")
+    }
+
+    @Test
+    func memoField() {
+        #expect(RecipientSceneViewModel.mock().memoField == "Memo")
+    }
+
+    @Test
+    func actionButtonTitle() {
+        #expect(RecipientSceneViewModel.mock().actionButtonTitle == "Continue")
+    }
+
+    @Test
+    func showMemo() {
+        #expect(RecipientSceneViewModel.mock(asset: .mock(id: AssetId(chain: .cosmos, tokenId: nil))).showMemo == true)
+        #expect(RecipientSceneViewModel.mock(asset: .mock(id: AssetId(chain: .ton, tokenId: nil))).showMemo == true)
+        #expect(RecipientSceneViewModel.mock(asset: .mock(id: AssetId(chain: .bitcoin, tokenId: nil))).showMemo == false)
+        #expect(RecipientSceneViewModel.mock(asset: .mockEthereum()).showMemo == false)
+    }
+
+    @Test
+    func shouldShowInputActions() {
+        let model = RecipientSceneViewModel.mock()
+        #expect(model.addressInputModel.shouldShowInputActions == true)
+
+        model.addressInputModel.text = "0x123"
+        #expect(model.addressInputModel.shouldShowInputActions == false)
+    }
+
+    @Test
+    func actionButtonState() {
+        let model = RecipientSceneViewModel.mock()
+
+        #expect(model.actionButtonState == .disabled)
+
+        model.addressInputModel.text = "0x1234567890123456789012345678901234567890"
+        _ = model.addressInputModel.update()
+
+        #expect(model.actionButtonState == .normal)
+
+        model.addressInputModel.text = "invalid"
+        _ = model.addressInputModel.update()
+
+        #expect(model.actionButtonState == .disabled)
+
+        model.addressInputModel.nameRecordViewModel.state = .loading(name: "test.eth")
+        #expect(model.actionButtonState == .disabled)
+
+        model.addressInputModel.text = "test.eth"
+        model.addressInputModel.nameRecordViewModel.state = .complete(record: NameRecord.mock().map())
+        #expect(model.actionButtonState == .normal)
+    }
+
+    @Test
+    func onContinueUsesChecksumAddress() {
+        let address = "0x5615e8ab93b9d695b6d4d6545f7792aa59e1069a"
+        let checksummed = "0x5615E8AB93b9d695b6d4d6545f7792aA59e1069a"
+        var recipientData: BsvHomePaymentRecipient?
+        let model = RecipientSceneViewModel.mock(onRecipientDataAction: { recipientData = $0 })
+
+        model.addressInputModel.text = " \n\(address)\r "
+        model.onContinue()
+
+        #expect(recipientData?.recipient.address == checksummed)
+
+        recipientData = nil
+        model.addressInputModel.text = "test.eth"
+        model.addressInputModel.nameRecordViewModel.state = .complete(record: NameRecord.mock(address: address).map())
+        model.onContinue()
+
+        #expect(recipientData?.recipient.address == checksummed)
+    }
+
+    @Test
+    func onHandleScanKeepsAmount() {
+        let asset = Asset.mockEthereum()
+        let model = RecipientSceneViewModel.mock(asset: asset, type: .asset(asset: asset.map()))
+
+        model.onHandleScan("ethereum:0x123?amount=1.5", for: .address)
+        model.onChangeAddressText("", new: model.addressInputModel.text)
+
+        #expect(model.recipientData?.amount == "1.5")
+
+        model.onChangeAddressText("", new: "0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326")
+
+        #expect(model.recipientData == nil)
+    }
+
+    @Test
+    func recipientDataKeepsAmount() {
+        let asset = Asset.mockEthereum()
+        let address = "0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326"
+        let model = RecipientSceneViewModel.mock(
+            asset: asset,
+            type: .asset(asset: asset.map()),
+            recipient: BsvHomePaymentRecipient(
+                recipient: BsvHomeRecipient(address: address, memo: "12345"),
+                amount: "10",
+            ),
+        )
+
+        #expect(model.addressInputModel.text == address)
+        #expect(model.memo == "12345")
+        #expect(model.recipientData?.amount == "10")
+
+        model.onChangeAddressText(address, new: "0x5615e8ab93b9d695b6d4d6545f7792aa59e1069a")
+
+        #expect(model.recipientData == nil)
+    }
+
+    @Test
+    func onHandleScanWithAmountGoesStraightToConfirm() {
+        let asset = Asset.mockEthereum()
+        var transfer: BsvHomeTransferData?
+        let model = RecipientSceneViewModel.mock(asset: asset, type: .asset(asset: asset.map()), onTransferAction: { transfer = $0 })
+
+        model.onHandleScan("ethereum:0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326?amount=1.5", for: .address)
+
+        #expect(transfer?.recipient.address == "0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326")
+        #expect(model.recipientData == nil)
+    }
+
+    @Test
+    func onHandleScanForAnNftOnlyFillsTheRecipient() {
+        var transfer: BsvHomeTransferData?
+        let model = RecipientSceneViewModel.mock(type: .nft(nftAsset: NFTAsset.mock(chain: .ethereum).map()), onTransferAction: { transfer = $0 })
+
+        model.onHandleScan("ethereum:0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326?amount=1.5", for: .address)
+
+        #expect(transfer == nil)
+        #expect(model.addressInputModel.text == "0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326")
+    }
+
+    @Test
+    func onContinueForAnNftConfirmsATransferOfTheAsset() {
+        let nftAsset = NFTAsset.mock()
+        var transfer: BsvHomeTransferData?
+        let model = RecipientSceneViewModel.mock(type: .nft(nftAsset: nftAsset.map()), onTransferAction: { transfer = $0 })
+
+        model.addressInputModel.text = "0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326"
+        model.onContinue()
+
+        guard case let .transferNft(_, found)? = transfer?.inputType else {
+            Issue.record("Expected an nft transfer")
+            return
+        }
+        #expect(found.id == nftAsset.map().id)
+        #expect(transfer?.value == .zero)
+        #expect(transfer?.recipient.address == "0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326")
+    }
+
+    @Test
+    func nftAssetImage() {
+        let nftAsset = NFTAsset.mock(id: NFTAssetId(chain: .ethereum, contractAddress: "0x123", tokenId: "1"))
+        let image = RecipientSceneViewModel.mock().nftAssetImage(for: nftAsset)
+        #expect(image.imageURL?.absoluteString.contains("ethereum_0x123::1") == true)
+    }
+}
+
+// MARK: - Mocks
+
+extension RecipientSceneViewModel {
+    static func mock(
+        wallet: Wallet = .mock(),
+        asset: Asset = .mockEthereum(),
+        type: BsvHomeRecipientType = .asset(asset: Asset.mock().map()),
+        recipient: BsvHomePaymentRecipient? = .none,
+        onRecipientDataAction: RecipientDataAction = nil,
+        onTransferAction: TransferDataAction = nil,
+    ) -> RecipientSceneViewModel {
+        RecipientSceneViewModel(
+            wallet: wallet,
+            asset: asset,
+            service: BsvHomeRecipientService.mock(),
+            nameService: BsvHomeNameService.mock(),
+            type: type,
+            recipient: recipient,
+            onRecipientDataAction: onRecipientDataAction,
+            onTransferAction: onTransferAction,
+        )
+    }
+}

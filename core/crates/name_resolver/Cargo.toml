@@ -1,0 +1,33 @@
+[package]
+name = "name_resolver"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+alloy-ens = { version = "2.1.0" }
+idna = { version = "1.1.0" }
+
+bsv_home_client = { path = "../bsv_home_client", features = ["reqwest"] }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["reqwest"] }
+bsv_home_encoding = { path = "../bsv_home_encoding", features = ["protobuf"] }
+bsv_home_hash = { path = "../bsv_home_hash" }
+bsv_home_aptos = { path = "../bsv_home_aptos", features = ["rpc"] }
+bsv_home_cosmos = { path = "../bsv_home_cosmos", features = ["rpc"] }
+bsv_home_evm = { path = "../bsv_home_evm", features = ["rpc"] }
+bsv_home_near = { path = "../bsv_home_near", features = ["rpc", "reqwest"] }
+bsv_home_solana = { path = "../bsv_home_solana" }
+bsv_home_ton = { path = "../bsv_home_ton", features = ["rpc"] }
+primitives = { path = "../primitives" }
+settings = { path = "../settings" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[[test]]
+name = "integration_test"
+test = false

@@ -1,0 +1,425 @@
+package com.gemwallet.android.data.coordinators.transaction
+
+import com.gemwallet.android.domains.transaction.aggregates.TransactionDataAggregate
+import com.gemwallet.android.testkit.mockTransaction
+import com.wallet.core.primitives.Transaction
+import com.wallet.core.primitives.TransactionExtended
+import com.gemwallet.android.serializer.jsonEncoder
+import com.wallet.core.primitives.Asset
+import com.wallet.core.primitives.AssetId
+import com.wallet.core.primitives.AssetType
+import com.wallet.core.primitives.Chain
+import com.wallet.core.primitives.TransactionDirection
+import com.wallet.core.primitives.TransactionId
+import com.wallet.core.primitives.TransactionState
+import com.wallet.core.primitives.TransactionSwapMetadata
+import com.wallet.core.primitives.TransactionType
+import org.junit.After
+import org.junit.Assume.assumeTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
+
+class TransactionDataAggregateImplTest {
+    private val gemstoneLibraryOverrideProperty = "uniffi.component.gemstone.libraryOverride"
+
+    companion object {
+        private fun gemstoneLibraryPath(): Path? {
+            val libraryName = System.mapLibraryName("gemstone")
+            var directory: Path? = Paths.get("").toAbsolutePath()
+
+            while (directory != null) {
+                val candidate = directory.resolve("core/target/debug/$libraryName").normalize()
+                if (Files.exists(candidate)) {
+                    return candidate
+                }
+                directory = directory.parent
+            }
+
+            return null
+        }
+    }
+
+    private fun assumeHostGemstoneRuntime() {
+        val libraryPath = gemstoneLibraryPath()
+        val isAvailable = try {
+            Class.forName("com.sun.jna.Native", true, javaClass.classLoader)
+            true
+        } catch (_: Throwable) {
+            false
+        }
+        assumeTrue("Host Gemstone runtime unavailable for JVM tests", libraryPath != null && isAvailable)
+        System.setProperty(
+            gemstoneLibraryOverrideProperty,
+            libraryPath.toString(),
+        )
+    }
+
+    @After
+    fun clearGemstoneLibraryOverride() {
+        System.clearProperty(gemstoneLibraryOverrideProperty)
+    }
+
+    private val btcAsset = Asset(
+        id = AssetId(Chain.Bitcoin),
+        name = "Bitcoin",
+        symbol = "BTC",
+        decimals = 8,
+        type = AssetType.NATIVE,
+    )
+
+    private val ethAsset = Asset(
+        id = AssetId(Chain.Ethereum),
+        name = "Ethereum",
+        symbol = "ETH",
+        decimals = 18,
+        type = AssetType.NATIVE,
+    )
+
+    private val usdtAsset = Asset(
+        id = AssetId(Chain.Ethereum, "0xdac17f958d2ee523a2206206994597c13d831ec7"),
+        name = "Tether",
+        symbol = "USDT",
+        decimals = 6,
+        type = AssetType.ERC20,
+    )
+
+    private fun createTransaction(
+        id: String = "tx123",
+        assetId: AssetId = btcAsset.id,
+        from: String = "bc1qsender",
+        to: String = "bc1qreceiver",
+        type: TransactionType = TransactionType.Transfer,
+        state: TransactionState = TransactionState.Confirmed,
+        direction: TransactionDirection = TransactionDirection.Outgoing,
+        value: String = "100000000",
+        metadata: String? = null,
+    ) = mockTransaction(
+        assetId = assetId,
+        id = TransactionId(assetId.chain, id),
+        from = from,
+        to = to,
+        type = type,
+        state = state,
+        value = value,
+        direction = direction,
+        metadata = metadata,
+    )
+
+    private fun createTransactionExtended(
+        transaction: Transaction,
+        asset: Asset = btcAsset,
+        assets: List<Asset> = emptyList(),
+    ) = TransactionExtended(
+        recordId = 1,
+        transaction = transaction,
+        asset = asset,
+        feeAsset = asset,
+        price = null,
+        feePrice = null,
+        assets = assets,
+        prices = emptyList(),
+    )
+
+    private fun createAggregate(transaction: TransactionExtended): TransactionDataAggregate =
+        TransactionDataAggregateImpl(transaction)
+
+    @Test
+    fun testBasicPropertyDelegation() {
+        val transaction = createTransaction(
+            id = "test-id-123",
+            state = TransactionState.Pending,
+            type = TransactionType.Transfer,
+            direction = TransactionDirection.Incoming,
+        )
+        val extended = createTransactionExtended(transaction)
+        val aggregate = createAggregate(extended)
+
+        assertEquals(TransactionId(Chain.Bitcoin, "test-id-123"), aggregate.id)
+        assertEquals(btcAsset, aggregate.asset)
+        assertEquals(TransactionType.Transfer, aggregate.type)
+        assertEquals(TransactionDirection.Incoming, aggregate.direction)
+        assertEquals(TransactionState.Pending, aggregate.state)
+        assertEquals(transaction.createdAt, aggregate.createdAt)
+    }
+
+    @Test
+    fun testAddress_transferOutgoing() {
+        assumeHostGemstoneRuntime()
+        val transaction = createTransaction(
+            type = TransactionType.Transfer,
+            direction = TransactionDirection.Outgoing,
+            from = "bc1qsender",
+            to = "bc1qx2x5cqhymfcnjtg902ky6u5t5htmt7fvqztdsm028hkrvxcl4t2sjtpd9l",
+        )
+        val extended = createTransactionExtended(transaction)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("bc1qx2...tpd9l", aggregate.address)
+    }
+
+    @Test
+    fun testAddress_transferIncoming() {
+        assumeHostGemstoneRuntime()
+        val transaction = createTransaction(
+            type = TransactionType.Transfer,
+            direction = TransactionDirection.Incoming,
+            from = "bc1qsender",
+            to = "bc1qreceiver",
+        )
+        val extended = createTransactionExtended(transaction)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("bc1qsender", aggregate.address)
+    }
+
+    @Test
+    fun testAddress_transferSelfTransfer() {
+        assumeHostGemstoneRuntime()
+        val transaction = createTransaction(
+            type = TransactionType.Transfer,
+            direction = TransactionDirection.SelfTransfer,
+            from = "bc1qsender",
+            to = "bc1qsender",
+        )
+        val extended = createTransactionExtended(transaction)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("bc1qsender", aggregate.address)
+    }
+
+    @Test
+    fun testAddress_swapTransaction() {
+        val transaction = createTransaction(
+            type = TransactionType.Swap,
+            direction = TransactionDirection.Outgoing,
+        )
+        val extended = createTransactionExtended(transaction)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("", aggregate.address)
+    }
+
+    @Test
+    fun testAddress_stakeDelegate() {
+        val transaction = createTransaction(
+            type = TransactionType.StakeDelegate,
+            direction = TransactionDirection.Outgoing,
+        )
+        val extended = createTransactionExtended(transaction)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("bc1qre...eiver", aggregate.address)
+    }
+
+    @Test
+    fun testValue_transferOutgoing() {
+        val transaction = createTransaction(
+            type = TransactionType.Transfer,
+            direction = TransactionDirection.Outgoing,
+            value = "100000000",
+        )
+        val extended = createTransactionExtended(transaction, asset = btcAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("-1 BTC", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_transferIncoming() {
+        val transaction = createTransaction(
+            type = TransactionType.Transfer,
+            direction = TransactionDirection.Incoming,
+            value = "50000000",
+        )
+        val extended = createTransactionExtended(transaction, asset = btcAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("+0.5 BTC", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_transferSelfTransfer() {
+        val transaction = createTransaction(
+            type = TransactionType.Transfer,
+            direction = TransactionDirection.SelfTransfer,
+            value = "25000000",
+        )
+        val extended = createTransactionExtended(transaction, asset = btcAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("0.25 BTC", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_stakeDelegate() {
+        val transaction = createTransaction(
+            type = TransactionType.StakeDelegate,
+            direction = TransactionDirection.Outgoing,
+            value = "1000000000000000000",
+        )
+        val extended = createTransactionExtended(transaction, asset = ethAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("1 ETH", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_stakeUndelegate() {
+        val transaction = createTransaction(
+            type = TransactionType.StakeUndelegate,
+            direction = TransactionDirection.Incoming,
+            value = "2000000000000000000",
+        )
+        val extended = createTransactionExtended(transaction, asset = ethAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("2 ETH", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_stakeRewards() {
+        val transaction = createTransaction(
+            type = TransactionType.StakeRewards,
+            direction = TransactionDirection.Incoming,
+            value = "500000000000000000",
+        )
+        val extended = createTransactionExtended(transaction, asset = ethAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("+0.5 ETH", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_tokenApproval() {
+        val transaction = createTransaction(
+            type = TransactionType.TokenApproval,
+            direction = TransactionDirection.Outgoing,
+            value = "1000000",
+        )
+        val extended = createTransactionExtended(transaction, asset = usdtAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("USDT", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_smartContractCall() {
+        val transaction = createTransaction(
+            type = TransactionType.SmartContractCall,
+            direction = TransactionDirection.Outgoing,
+            value = "1000000000000000000",
+        )
+        val extended = createTransactionExtended(transaction, asset = ethAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("1 ETH", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_swap() {
+        val bnbAsset = Asset(
+            id = AssetId(Chain.SmartChain),
+            name = "BNB",
+            symbol = "BNB",
+            decimals = 18,
+            type = AssetType.NATIVE,
+        )
+        val tonAsset = Asset(
+            id = AssetId(Chain.SmartChain, "0x76A797A59Ba2C17726896976B7B3747BfD1d220f"),
+            name = "Ton",
+            symbol = "TON",
+            decimals = 9,
+            type = AssetType.BEP20,
+        )
+
+        val swapMetadata = TransactionSwapMetadata(
+            fromAsset = bnbAsset.id,
+            toAsset = tonAsset.id,
+            fromValue = "90000000000000000",
+            toValue = "19000000000",
+        )
+        val metadata = jsonEncoder.encodeToString(TransactionSwapMetadata.serializer(), swapMetadata)
+
+        val transaction = createTransaction(
+            type = TransactionType.Swap,
+            direction = TransactionDirection.Outgoing,
+            assetId = bnbAsset.id,
+            value = "90000000000000000",
+            metadata = metadata,
+        )
+        val extended = createTransactionExtended(
+            transaction = transaction,
+            asset = bnbAsset,
+            assets = listOf(bnbAsset, tonAsset),
+                    )
+        val aggregate = createAggregate(extended)
+
+        assertEquals(aggregate.value,"+19 TON")
+        assertEquals(aggregate.equivalentValue, "-0.09 BNB")
+    }
+
+    @Test
+    fun testValue_swapMissingMetadata() {
+        val transaction = createTransaction(
+            type = TransactionType.Swap,
+            direction = TransactionDirection.Outgoing,
+            value = "90000000000000000",
+            metadata = null,
+        )
+        val extended = createTransactionExtended(transaction, asset = ethAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_swapInvalidValues() {
+        val swapMetadata = TransactionSwapMetadata(
+            fromAsset = btcAsset.id,
+            toAsset = ethAsset.id,
+            fromValue = "1.5",
+            toValue = "",
+        )
+        val transaction = createTransaction(
+            type = TransactionType.Swap,
+            assetId = btcAsset.id,
+            metadata = jsonEncoder.encodeToString(TransactionSwapMetadata.serializer(), swapMetadata),
+        )
+        val aggregate = createAggregate(
+            createTransactionExtended(
+                transaction = transaction,
+                assets = listOf(btcAsset, ethAsset),
+                            ),
+        )
+
+        assertEquals("", aggregate.value)
+        assertNull(aggregate.equivalentValue)
+    }
+
+    @Test
+    fun testValue_smallAmount() {
+        val transaction = createTransaction(
+            type = TransactionType.Transfer,
+            direction = TransactionDirection.Outgoing,
+            value = "1345",
+        )
+        val extended = createTransactionExtended(transaction, asset = btcAsset)
+        val aggregate = createAggregate(extended)
+
+        assertEquals("-<0.0001 BTC", aggregate.value)
+    }
+
+}

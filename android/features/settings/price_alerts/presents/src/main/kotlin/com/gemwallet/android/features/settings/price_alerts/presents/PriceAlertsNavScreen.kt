@@ -1,0 +1,101 @@
+package com.gemwallet.android.features.settings.price_alerts.presents
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalResources
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gemwallet.android.model.AssetInfo
+import com.gemwallet.android.ui.R
+import com.gemwallet.android.ui.components.rememberNotificationPermissionGate
+import com.gemwallet.android.ui.components.screen.rememberSnackbarState
+import com.gemwallet.android.ui.components.screen.showSnackbar
+import com.gemwallet.android.features.settings.price_alerts.viewmodels.PriceAlertViewModel
+import com.wallet.core.primitives.AssetId
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun PriceAlertsNavScreen(
+    toastMessage: String? = null,
+    onToastShown: () -> Unit = {},
+    onChart: (AssetId) -> Unit,
+    onAddPriceAlertTarget: (AssetId) -> Unit,
+    onCancel: () -> Unit,
+    viewModel: PriceAlertViewModel = hiltViewModel(),
+) {
+    val resources = LocalResources.current
+    val scope = rememberCoroutineScope()
+    val snackbar = rememberSnackbarState(
+        message = toastMessage,
+        iconRes = R.drawable.ic_notifications,
+        onShown = onToastShown,
+    )
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    LaunchedEffect(error) {
+        error?.let {
+            snackbar.showSnackbar(it, R.drawable.ic_error)
+            viewModel.clearError()
+        }
+    }
+
+    var selectingAsset by remember { mutableStateOf(false) }
+    val requestNotificationPermission = rememberNotificationPermissionGate()
+
+    val data by viewModel.data.collectAsStateWithLifecycle()
+    val assetInfo by viewModel.assetInfo.collectAsStateWithLifecycle()
+    val priceAlertEnabled by viewModel.priceAlertEnabled.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+
+    AnimatedContent(selectingAsset, label = "") { selecting ->
+        when (selecting) {
+            true -> PriceAlertSelectScreen(
+                onCancel = { selectingAsset = false },
+                onSelect = { assetId ->
+                    requestNotificationPermission {
+                        viewModel.includeAsset(assetId) { asset ->
+                            val message = resources.getString(R.string.price_alerts_enabled_for, asset.name)
+                            scope.launch {
+                                snackbar.showSnackbar(message, R.drawable.ic_notifications)
+                            }
+                        }
+                    }
+                    selectingAsset = false
+                },
+            )
+            false -> PriceAlertScene(
+                assetInfo = assetInfo,
+                data = data,
+                enabled = priceAlertEnabled == true,
+                syncState = isRefreshing,
+                isAssetView = viewModel.isAssetManage(),
+                snackbar = snackbar,
+                onAction = { action ->
+                    when (action) {
+                        is PriceAlertAction.TogglePriceAlerts -> if (action.enabled) {
+                            requestNotificationPermission { viewModel.togglePriceAlerts(true) }
+                        } else {
+                            viewModel.togglePriceAlerts(false)
+                        }
+                        is PriceAlertAction.ToggleAutoAlert -> if (action.enabled) {
+                            requestNotificationPermission { viewModel.toggleAutoAlert(true) }
+                        } else {
+                            viewModel.toggleAutoAlert(false)
+                        }
+                        is PriceAlertAction.Exclude -> viewModel.excludeAsset(action.id)
+                        PriceAlertAction.Refresh -> viewModel.refresh()
+                        PriceAlertAction.Add -> selectingAsset = true
+                        PriceAlertAction.Close -> onCancel()
+                        is PriceAlertAction.OpenChart -> onChart(action.assetId)
+                        is PriceAlertAction.AddTarget -> onAddPriceAlertTarget(action.assetId)
+                    }
+                },
+            )
+        }
+    }
+}

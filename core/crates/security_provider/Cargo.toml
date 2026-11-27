@@ -1,0 +1,21 @@
+[package]
+name = "security_provider"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+primitives = { path = "../primitives" }
+serde_json = { workspace = true }
+hex = { workspace = true }
+sha1 = { workspace = true }
+bsv_home_client = { path = "../bsv_home_client", features = ["reqwest"] }
+jupiter = { path = "../jupiter" }
+
+[features]
+security_integration_tests = []
+
+[dev-dependencies]
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+tokio = { workspace = true }

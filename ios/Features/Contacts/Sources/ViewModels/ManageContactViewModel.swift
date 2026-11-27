@@ -1,0 +1,240 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import struct BsvHomeCore.BsvHomeContactAddressInput
+import enum BsvHomeCore.BsvHomeContactAvatar
+import protocol BsvHomeCore.BsvHomeManageContactServiceProtocol
+import protocol BsvHomeCore.BsvHomeNameServiceProtocol
+import struct BsvHomeCore.BsvHomeRecipient
+import enum BsvHomeCore.BsvHomeRuntimeEnvironment
+import BsvHomeCorePrimitives
+import BsvHomeCoreServices
+import Localization
+import Primitives
+import PrimitivesComponents
+import Style
+import SwiftUI
+import UIKit
+import Validators
+
+@Observable
+@MainActor
+public final class ManageContactViewModel {
+    public enum Mode {
+        case add(recipient: BsvHomeRecipient? = nil, chain: Chain? = nil)
+        case edit(ContactData)
+
+        var contact: Contact? {
+            switch self {
+            case .add: nil
+            case let .edit(contactData): contactData.contact
+            }
+        }
+    }
+
+    enum Avatar {
+        case empty
+        case image(imageUrl: String)
+        case emoji(EmojiValue)
+
+        init(imageUrl: String?) {
+            self = imageUrl.map { .image(imageUrl: $0) } ?? .empty
+        }
+    }
+
+    private let service: any BsvHomeManageContactServiceProtocol
+    private let nameService: any BsvHomeNameServiceProtocol
+    private let mode: Mode
+
+    let contactId: String
+
+    var nameInputModel: InputValidationViewModel
+    var description: String = ""
+    var avatar: Avatar = .empty
+    var addresses: [ContactAddress] = []
+    var isPresentingAddress: ManageContactAddressViewModel.Mode?
+    var isPresentingAvatar: Bool = false
+    var isPresentingAlertMessage: AlertMessage?
+
+    let emojiList: [EmojiValue] = Emoji.WalletAvatar.allCases.map { EmojiValue(emoji: $0.rawValue, color: Colors.grayVeryLight) }
+
+    public init(
+        service: any BsvHomeManageContactServiceProtocol,
+        nameService: any BsvHomeNameServiceProtocol,
+        mode: Mode,
+    ) {
+        self.service = service
+        self.nameService = nameService
+        self.mode = mode
+
+        nameInputModel = InputValidationViewModel(
+            mode: .onDemand,
+            validators: [.required(requireName: Localized.Wallet.name)],
+        )
+
+        switch mode {
+        case let .add(recipient, chain):
+            contactId = UUID().uuidString
+            if let recipient, let chain, BsvHomeRuntimeEnvironment.current.availableChains().contains(chain.map()) {
+                addresses = BsvHomeContactAddressInput(
+                    contactId: contactId,
+                    chain: chain,
+                    address: recipient.address,
+                    memo: recipient.memo,
+                    replacingId: nil,
+                ).addAddress([])
+            }
+        case let .edit(contactData):
+            contactId = contactData.contact.id
+            nameInputModel.text = contactData.contact.name
+            description = contactData.contact.description ?? ""
+            avatar = Avatar(imageUrl: contactData.contact.imageUrl)
+            addresses = contactData.addresses
+        }
+    }
+
+    var title: String {
+        Localized.Contacts.contact
+    }
+
+    var defaultChain: Chain {
+        service.defaultContactChain
+    }
+
+    var visibleAddresses: [ContactAddress] {
+        let chains = BsvHomeRuntimeEnvironment.current.availableChains()
+        return addresses.filter { chains.contains($0.chain.map()) }
+    }
+
+    var isAddMode: Bool {
+        switch mode {
+        case .add: true
+        case .edit: false
+        }
+    }
+
+    var buttonTitle: String {
+        Localized.Common.save
+    }
+
+    var nameTitle: String {
+        Localized.Wallet.name
+    }
+
+    var descriptionTitle: String {
+        Localized.Common.description
+    }
+
+    var addressesSectionTitle: String {
+        Localized.Contacts.addresses
+    }
+
+    var buttonState: ButtonState {
+        guard nameInputModel.isValid,
+              nameInputModel.text.isNotEmpty
+        else {
+            return .disabled
+        }
+
+        return .normal
+    }
+
+    var avatarImage: AssetImage {
+        switch avatar {
+        case .empty: initials.isEmpty ? .image(Images.System.personCircleFill) : AssetImage(type: .text(initials))
+        case let .image(imageUrl): AssetImage(type: .text(initials), imageURL: ImageSource(imageUrl).url)
+        case let .emoji(value): AssetImage(type: .emoji(value.emoji))
+        }
+    }
+
+    var avatarStyle: AssetImageView.Style? {
+        switch avatar {
+        case .empty: initials.isEmpty ? AssetImageView.Style(foregroundColor: Colors.grayLightFaded) : nil
+        case .image, .emoji: nil
+        }
+    }
+
+    var onClearAvatar: VoidAction {
+        switch avatar {
+        case .empty: nil
+        case .image, .emoji: { [weak self] in self?.avatar = .empty }
+        }
+    }
+
+    func onSelectAvatar(_ value: EmojiValue) {
+        avatar = .emoji(value)
+        isPresentingAvatar = false
+    }
+
+    private func avatarInput() throws -> BsvHomeContactAvatar {
+        switch avatar {
+        case .empty:
+            return .empty
+        case let .image(imageUrl):
+            return .image(imageUrl: imageUrl)
+        case let .emoji(value):
+            guard let data = EmojiAvatarRenderer.image(emoji: value.emoji, size: .image.extraLarge, color: value.color.uiColor).pngData() else {
+                throw AnyError("Render avatar image failed")
+            }
+            return .rendered(image: data)
+        }
+    }
+
+    private var initials: String {
+        String(nameInputModel.text.trim().prefix(2))
+    }
+
+    func listItemModel(for address: ContactAddress) -> ListItemModel {
+        ListItemModel(
+            title: address.chain.networkName,
+            titleExtra: service.formatAddress(address: address.address, chain: address.chain.rawValue, style: .short),
+            imageStyle: .asset(assetImage: AssetIdViewModel(assetId: address.chain.assetId).assetImage),
+        )
+    }
+
+    func addressModel(mode: ManageContactAddressViewModel.Mode) -> ManageContactAddressViewModel {
+        ManageContactAddressViewModel(
+            service: service,
+            nameService: nameService,
+            mode: mode,
+            onComplete: { [weak self] in self?.onAddressComplete($0) },
+        )
+    }
+
+    func onAddressComplete(_ input: ManageContactAddressViewModel.Input) {
+        guard BsvHomeRuntimeEnvironment.current.availableChains().contains(input.chain.map()) else { return }
+        addresses = BsvHomeContactAddressInput(
+            contactId: contactId,
+            chain: input.chain,
+            address: input.address,
+            memo: input.memo,
+            replacingId: input.replacingId,
+        ).addAddress(addresses)
+        isPresentingAddress = nil
+    }
+
+    func deleteAddress(at offsets: IndexSet) {
+        let deletedIds = Set(offsets.map { visibleAddresses[$0].id })
+        addresses.removeAll { deletedIds.contains($0.id) }
+    }
+
+    func onSave(dismiss: DismissAction) {
+        Task {
+            do {
+                let contact = try await service.saveContact(
+                    id: contactId,
+                    existing: mode.contact,
+                    name: nameInputModel.text,
+                    description: description,
+                    avatar: avatarInput(),
+                    addresses: addresses,
+                )
+                avatar = Avatar(imageUrl: contact.imageUrl)
+                dismiss()
+            } catch {
+                isPresentingAlertMessage = AlertMessage(error: error)
+            }
+        }
+    }
+}

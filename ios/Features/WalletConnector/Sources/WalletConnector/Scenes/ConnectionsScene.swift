@@ -1,0 +1,84 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Localization
+import Primitives
+import PrimitivesComponents
+import QRScanner
+import Store
+import Style
+import SwiftUI
+
+public struct ConnectionsScene: View {
+    @State private var model: ConnectionsViewModel
+
+    public init(model: ConnectionsViewModel) {
+        _model = State(initialValue: model)
+    }
+
+    public var body: some View {
+        List {
+            Section {
+                ButtonListItem(
+                    title: model.pasteButtonTitle,
+                    image: Images.System.paste,
+                    action: model.onPaste,
+                )
+                ButtonListItem(
+                    title: model.scanQRCodeButtonTitle,
+                    image: Images.System.qrCodeViewfinder,
+                    action: model.onScan,
+                )
+            }
+
+            ForEach(model.sections) { section in
+                Section(section.title.or(.empty)) {
+                    ForEach(section.values) { connection in
+                        NavigationLink(value: connection) {
+                            ConnectionView(model: model.connectionViewModel(connection: connection))
+                                .swipeActions(edge: .trailing) {
+                                    Button(
+                                        model.disconnectTitle,
+                                        role: .destructive,
+                                        action: { model.onSelectDisconnect(connection) },
+                                    )
+                                    .tint(Colors.red)
+                                }
+                        }
+                    }
+                }
+            }
+        }
+        .bindQuery(model.query)
+        .contentMargins(.top, .scene.top, for: .scrollContent)
+        .overlay {
+            if model.sections.isEmpty {
+                EmptyContentView(model: model.emptyContentModel)
+                    .padding(.horizontal, .medium)
+            }
+        }
+        .navigationDestination(for: WalletConnection.self) { connection in
+            ConnectionScene(
+                model: model.connectionSceneModel(connection: connection),
+                onDisconnect: { model.onSelectDisconnect(connection) },
+            )
+        }
+        .sheet(isPresented: $model.isPresentingScanner) {
+            ScanQRCodeNavigationStack(scanType: .walletConnect, action: model.onHandleScan(_:))
+        }
+        .toolbarInfoButton(url: model.docsUrl)
+        .alertSheet($model.isPresentingAlertMessage)
+        .toast(
+            isPresenting: $model.isPresentingConnectorBar,
+            message: ToastMessage(
+                title: "\(Localized.WalletConnect.brandName)...",
+                image: SystemImage.network,
+            ),
+            duration: .infinity,
+            tapToDismiss: false,
+        )
+        .navigationTitle(model.title)
+        .taskOnce { model.load() }
+        .onChange(of: model.walletConnectorPresenter?.isPresentingSheet?.id, model.hideConnectionBar)
+    }
+}

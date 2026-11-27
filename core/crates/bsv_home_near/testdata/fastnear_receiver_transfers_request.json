@@ -1,0 +1,7 @@
+{
+  "account_id": "address.near",
+  "direction": "receiver",
+  "desc": true,
+  "limit": 100,
+  "from_timestamp_ms": 1700000000000
+}

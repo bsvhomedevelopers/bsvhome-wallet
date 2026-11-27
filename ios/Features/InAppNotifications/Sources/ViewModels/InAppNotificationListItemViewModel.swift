@@ -1,0 +1,65 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Foundation
+import Localization
+import Primitives
+import PrimitivesComponents
+import Style
+
+public struct InAppNotificationListItemViewModel: Identifiable, Sendable {
+    private let item: CoreListItem
+    private let isRead: Bool
+
+    public let id: String
+    public let url: URL?
+
+    public init(notification: InAppNotification) {
+        id = notification.id
+        item = notification.item
+        isRead = notification.isRead
+        url = notification.item.url?.asURL
+    }
+
+    var listItemModel: ListItemModel {
+        ListItemModel(
+            title: item.title,
+            titleTag: isRead ? nil : Localized.Assets.Tags.new,
+            titleTagStyle: TextStyle(font: .footnote.weight(.medium), color: .blue, background: Colors.blue.opacity(.light)),
+            titleExtra: item.subtitle,
+            subtitle: item.value,
+            subtitleStyle: TextStyle(font: .callout, color: Colors.black, fontWeight: .semibold),
+            subtitleExtra: item.subvalue,
+            imageStyle: imageStyle,
+        )
+    }
+
+    private var imageStyle: ListItemImageStyle? {
+        guard let icon = item.icon else { return nil }
+        return ListItemImageStyle(
+            assetImage: assetImage(for: icon),
+            imageSize: .image.asset,
+            alignment: .top,
+            cornerRadiusType: .rounded,
+        )
+    }
+
+    private func assetImage(for icon: CoreListItemIcon) -> AssetImage {
+        switch icon {
+        case let .emoji(emoji): AssetImage(type: .emoji(emoji.value))
+        case let .asset(assetId): AssetIdViewModel(assetId: assetId).assetImage
+        case let .image(url): AssetImage(imageURL: url.asURL)
+        }
+    }
+}
+
+private extension CoreEmoji {
+    var value: String {
+        switch self {
+        case .gift: Emoji.WalletAvatar.gift.rawValue
+        case .gem: Emoji.diamond
+        case .party: Emoji.party
+        case .warning: Emoji.WalletAvatar.warning.rawValue
+        }
+    }
+}

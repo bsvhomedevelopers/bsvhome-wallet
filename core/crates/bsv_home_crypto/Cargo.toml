@@ -1,0 +1,18 @@
+[package]
+name = "bsv_home_crypto"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+default = []
+hash = ["dep:bsv_home_hash", "dep:zeroize"]
+pbkdf = ["hash"]
+random = ["dep:getrandom"]
+
+[dependencies]
+bsv_home_hash = { path = "../bsv_home_hash", optional = true }
+getrandom = { workspace = true, optional = true }
+zeroize = { workspace = true, optional = true }
+
+[dev-dependencies]
+hex = { workspace = true }

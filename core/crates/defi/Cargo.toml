@@ -1,0 +1,18 @@
+[package]
+name = "defi"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+num-bigint = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+futures = { workspace = true }
+bsv_home_client = { path = "../bsv_home_client", features = ["reqwest"] }
+jupiter = { path = "../jupiter" }
+number_formatter = { path = "../number_formatter" }
+primitives = { path = "../primitives" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+settings = { path = "../settings" }
+storage = { path = "../storage" }

@@ -1,0 +1,29 @@
+{
+  "script": "be171d693230f5e5a85e2ff58b92b0729dafb4768e567ae38a9e91c9849837a3",
+  "error": "",
+  "result": [
+    {
+      "tx_hash": "98efb4479ffe44fa61414dbb372394c7d15cf3b032ac0f93e0030b5f0c1e8ccf",
+      "tx_pos": 0,
+      "value": 10000,
+      "height": 10,
+      "status": "confirmed",
+      "isSpentInMempoolTx": false
+    },
+    {
+      "tx_hash": "98efb4479ffe44fa61414dbb372394c7d15cf3b032ac0f93e0030b5f0c1e8ccf",
+      "tx_pos": 1,
+      "value": 20000,
+      "height": 10,
+      "status": "confirmed",
+      "isSpentInMempoolTx": true
+    },
+    {
+      "tx_hash": "3e9a237e5784d2b1ea340778b1acb3971a165d96bfa1327e8fcdbb930a64ce39",
+      "tx_pos": 0,
+      "value": 10000,
+      "status": "unconfirmed",
+      "isSpentInMempoolTx": false
+    }
+  ]
+}

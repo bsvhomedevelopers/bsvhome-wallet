@@ -1,0 +1,425 @@
+use crate::contract_call_data::ContractCallData;
+use crate::earn_type::EarnType;
+use crate::stake_type::StakeType;
+use crate::swap::{ApprovalData, SwapData, SwapQuoteDataType};
+use crate::transaction_fee::TransactionFee;
+use crate::transaction_load_metadata::TransactionLoadMetadata;
+use crate::{ApplicationMetadata, Asset, AssetId, GasPriceType, PerpetualType, SignerError, TransactionType, TransferDataExtra, nft::NFTAsset, perpetual::AccountDataType};
+use num_bigint::BigInt;
+use num_bigint::BigUint;
+use num_traits::ToPrimitive;
+use std::collections::HashMap;
+use std::ops::Deref;
+
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum TransactionInputType {
+    Transfer {
+        asset: Asset,
+    },
+    Deposit {
+        asset: Asset,
+    },
+    Withdrawal {
+        asset: Asset,
+    },
+    Swap {
+        from_asset: Asset,
+        to_asset: Asset,
+        swap_data: SwapData,
+    },
+    Stake {
+        asset: Asset,
+        stake_type: StakeType,
+    },
+    TokenApprove {
+        asset: Asset,
+        approval_data: ApprovalData,
+    },
+    Generic {
+        asset: Asset,
+        metadata: ApplicationMetadata,
+        extra: TransferDataExtra,
+    },
+    TransferNft {
+        asset: Asset,
+        nft_asset: NFTAsset,
+    },
+    Account {
+        asset: Asset,
+        account_type: AccountDataType,
+    },
+    Perpetual {
+        asset: Asset,
+        perpetual_type: PerpetualType,
+    },
+    Earn {
+        asset: Asset,
+        earn_type: EarnType,
+        data: ContractCallData,
+    },
+}
+
+impl TransactionInputType {
+    pub fn get_asset(&self) -> &Asset {
+        match self {
+            TransactionInputType::Transfer { asset } | TransactionInputType::Withdrawal { asset } => asset,
+            TransactionInputType::Deposit { asset } => asset,
+            TransactionInputType::Swap { from_asset: asset, .. } => asset,
+            TransactionInputType::Stake { asset, .. } => asset,
+            TransactionInputType::TokenApprove { asset, .. } => asset,
+            TransactionInputType::Generic { asset, .. } => asset,
+            TransactionInputType::TransferNft { asset, .. } => asset,
+            TransactionInputType::Account { asset, .. } => asset,
+            TransactionInputType::Perpetual { asset, .. } => asset,
+            TransactionInputType::Earn { asset, .. } => asset,
+        }
+    }
+
+    pub fn get_swap_data(&self) -> Result<&SwapData, &'static str> {
+        match self {
+            TransactionInputType::Swap { swap_data, .. } => Ok(swap_data),
+            _ => Err("expected swap transaction"),
+        }
+    }
+
+    pub fn get_generic_data(&self) -> Result<&TransferDataExtra, &'static str> {
+        match self {
+            TransactionInputType::Generic { extra, .. } => Ok(extra),
+            _ => Err("expected generic transaction"),
+        }
+    }
+
+    pub fn get_application_metadata(&self) -> Result<&ApplicationMetadata, &'static str> {
+        match self {
+            TransactionInputType::Generic { metadata, .. } => Ok(metadata),
+            _ => Err("expected generic transaction"),
+        }
+    }
+
+    pub fn get_approval_data(&self) -> Result<&ApprovalData, &'static str> {
+        match self {
+            TransactionInputType::TokenApprove { approval_data: approval, .. } => Ok(approval),
+            _ => Err("expected token approval transaction"),
+        }
+    }
+
+    pub fn get_nft_asset(&self) -> Result<&NFTAsset, &'static str> {
+        match self {
+            TransactionInputType::TransferNft { nft_asset: nft, .. } => Ok(nft),
+            _ => Err("expected NFT transfer transaction"),
+        }
+    }
+
+    pub fn get_earn_data(&self) -> Result<&ContractCallData, &'static str> {
+        match self {
+            TransactionInputType::Earn { data, .. } => Ok(data),
+            _ => Err("expected earn transaction"),
+        }
+    }
+
+    pub fn get_stake_type(&self) -> Result<&StakeType, &'static str> {
+        match self {
+            TransactionInputType::Stake { stake_type, .. } => Ok(stake_type),
+            _ => Err("expected stake transaction"),
+        }
+    }
+
+    pub fn get_perpetual_type(&self) -> Result<&PerpetualType, &'static str> {
+        match self {
+            TransactionInputType::Perpetual { perpetual_type, .. } => Ok(perpetual_type),
+            _ => Err("expected perpetual transaction"),
+        }
+    }
+
+    pub fn swap_to_address(&self) -> Option<&str> {
+        match self {
+            TransactionInputType::Swap { swap_data, .. } => Some(&swap_data.data.to),
+            _ => None,
+        }
+    }
+
+    pub fn get_recipient_asset(&self) -> &Asset {
+        match self {
+            TransactionInputType::Transfer { asset } | TransactionInputType::Withdrawal { asset } => asset,
+            TransactionInputType::Deposit { asset } => asset,
+            TransactionInputType::Swap { to_asset: asset, .. } => asset,
+            TransactionInputType::Stake { asset, .. } => asset,
+            TransactionInputType::TokenApprove { asset, .. } => asset,
+            TransactionInputType::Generic { asset, .. } => asset,
+            TransactionInputType::TransferNft { asset, .. } => asset,
+            TransactionInputType::Account { asset, .. } => asset,
+            TransactionInputType::Perpetual { asset, .. } => asset,
+            TransactionInputType::Earn { asset, .. } => asset,
+        }
+    }
+
+    pub fn transaction_type(&self) -> TransactionType {
+        match self {
+            TransactionInputType::Transfer { .. } | TransactionInputType::Withdrawal { .. } | TransactionInputType::Deposit { .. } => TransactionType::Transfer,
+            TransactionInputType::Swap { .. } => TransactionType::Swap,
+            TransactionInputType::Stake { stake_type, .. } => match stake_type {
+                StakeType::Stake(_) => TransactionType::StakeDelegate,
+                StakeType::Unstake(_) => TransactionType::StakeUndelegate,
+                StakeType::Redelegate(_) => TransactionType::StakeRedelegate,
+                StakeType::Rewards(_) => TransactionType::StakeRewards,
+                StakeType::Withdraw(_) => TransactionType::StakeWithdraw,
+                StakeType::Freeze(_) => TransactionType::StakeFreeze,
+                StakeType::Unfreeze(_) => TransactionType::StakeUnfreeze,
+            },
+            TransactionInputType::TokenApprove { .. } => TransactionType::TokenApproval,
+            TransactionInputType::Generic { extra, .. } => extra.transaction_type.clone(),
+            TransactionInputType::TransferNft { .. } => TransactionType::TransferNFT,
+            TransactionInputType::Account { .. } => TransactionType::AssetActivation,
+            TransactionInputType::Perpetual { perpetual_type, .. } => match perpetual_type {
+                PerpetualType::Open { .. } | PerpetualType::Increase { .. } => TransactionType::PerpetualOpenPosition,
+                PerpetualType::Close { .. } | PerpetualType::Reduce { .. } => TransactionType::PerpetualClosePosition,
+                PerpetualType::Modify { .. } => TransactionType::PerpetualModifyPosition,
+            },
+            TransactionInputType::Earn { earn_type, .. } => match earn_type {
+                EarnType::Deposit(_) => TransactionType::EarnDeposit,
+                EarnType::Withdraw(_) => TransactionType::EarnWithdraw,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TransactionLoadInput {
+    pub input_type: TransactionInputType,
+    pub sender_address: String,
+    pub destination_address: String,
+    pub value: BigUint,
+    pub gas_price: GasPriceType,
+    pub memo: Option<String>,
+    pub is_max_value: bool,
+    pub metadata: TransactionLoadMetadata,
+}
+
+impl TransactionLoadInput {
+    pub fn default_fee(&self) -> TransactionFee {
+        TransactionFee {
+            fee: self.gas_price.total_fee(),
+            gas_price_type: self.gas_price.clone(),
+            gas_limit: 0.into(),
+            options: HashMap::new(),
+            fee_asset: AssetId::from_chain(self.input_type.get_asset().chain()),
+        }
+    }
+}
+
+impl TransactionLoadInput {
+    pub fn get_data_extra(&self) -> Result<&TransferDataExtra, &'static str> {
+        self.input_type.get_generic_data()
+    }
+
+    pub fn get_memo(&self) -> Option<&str> {
+        self.memo.as_deref().filter(|memo| !memo.is_empty())
+    }
+
+    pub fn value_as_u64(&self) -> Result<u64, SignerError> {
+        self.value.to_u64().ok_or_else(|| SignerError::invalid_input("transaction amount is too large"))
+    }
+
+    pub fn value_as_bigint(&self) -> BigInt {
+        BigInt::from(self.value.clone())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SignerInput {
+    pub input: TransactionLoadInput,
+    pub fee: TransactionFee,
+}
+
+impl SignerInput {
+    pub fn new(input: TransactionLoadInput, fee: TransactionFee) -> Self {
+        Self { input, fee }
+    }
+
+    pub fn swap_gas_limit(&self) -> Result<u64, SignerError> {
+        let swap_data = &self.input_type.get_swap_data()?.data;
+        match &swap_data.approval {
+            Some(_) => swap_data
+                .gas_limit
+                .as_ref()
+                .and_then(|gas_limit| gas_limit.parse().ok())
+                .ok_or_else(|| SignerError::invalid_input("missing swap gas limit")),
+            None => self.fee.gas_limit(),
+        }
+    }
+
+    pub fn swap_value_u64(&self) -> Result<u64, SignerError> {
+        self.swap_value()?.to_u64().ok_or_else(|| SignerError::invalid_input("invalid transaction amount"))
+    }
+
+    pub fn swap_value(&self) -> Result<BigInt, SignerError> {
+        let swap = self.input_type.get_swap_data()?;
+        let value = BigInt::from(swap.data.value.clone());
+        if !swap.quote.use_max_amount.unwrap_or(self.is_max_value) || !self.input_type.get_asset().id.is_native() {
+            return Ok(value);
+        }
+        match swap.data.data_type {
+            SwapQuoteDataType::Transfer => {}
+            SwapQuoteDataType::Contract => return Ok(value),
+        }
+        let value = value - &self.fee.fee;
+        if value < BigInt::ZERO {
+            return Err(SignerError::InsufficientFunds);
+        }
+        if let Some(min_from_value) = &swap.quote.min_from_value
+            && value < BigInt::from(min_from_value.clone())
+        {
+            return Err(SignerError::SwapValueBelowMinimum);
+        }
+        Ok(value)
+    }
+}
+
+impl Deref for SignerInput {
+    type Target = TransactionLoadInput;
+
+    fn deref(&self) -> &Self::Target {
+        &self.input
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TransactionLoadData {
+    pub fee: TransactionFee,
+    pub metadata: TransactionLoadMetadata,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Asset, Chain, DelegationValidator, PerpetualConfirmData, PerpetualDirection, Resource, SwapProvider};
+
+    fn swap_signer_input(swap_data: SwapData, value: &str) -> SignerInput {
+        SignerInput::mock_evm(
+            TransactionInputType::Swap {
+                from_asset: Asset::from_chain(Chain::Ethereum),
+                to_asset: Asset::from_chain(Chain::Tron),
+                swap_data,
+            },
+            value,
+            21000,
+        )
+    }
+
+    #[test]
+    fn test_swap_value() {
+        let fee = 21000u64 * 20_000_000_000;
+        let value = "1000000000000000000";
+        let mut swap_data = SwapData::mock_transfer(SwapProvider::NearIntents, value, "1", "0x0000000000000000000000000000000000000001");
+        swap_data.quote.use_max_amount = Some(true);
+
+        let input = swap_signer_input(swap_data.clone(), value);
+        assert_eq!(input.swap_value().unwrap(), BigInt::from(1_000_000_000_000_000_000u64 - fee));
+
+        swap_data.quote.use_max_amount = Some(false);
+        let input = swap_signer_input(swap_data.clone(), value);
+        assert_eq!(input.swap_value().unwrap(), BigInt::from(1_000_000_000_000_000_000u64));
+
+        swap_data.quote.use_max_amount = Some(true);
+        swap_data.quote.min_from_value = Some(value.parse().unwrap());
+        let input = swap_signer_input(swap_data.clone(), value);
+        assert_eq!(input.swap_value().unwrap_err(), SignerError::SwapValueBelowMinimum);
+
+        swap_data.quote.min_from_value = None;
+        swap_data.data.data_type = SwapQuoteDataType::Contract;
+        let input = swap_signer_input(swap_data, value);
+        assert_eq!(input.swap_value().unwrap(), BigInt::from(1_000_000_000_000_000_000u64));
+    }
+
+    #[test]
+    fn transaction_types() {
+        assert_eq!(TransactionInputType::Transfer { asset: Asset::mock() }.transaction_type(), TransactionType::Transfer);
+        assert_eq!(
+            TransactionInputType::Stake {
+                asset: Asset::mock(),
+                stake_type: StakeType::Stake(DelegationValidator::mock())
+            }
+            .transaction_type(),
+            TransactionType::StakeDelegate
+        );
+        assert_eq!(
+            TransactionInputType::Stake {
+                asset: Asset::mock(),
+                stake_type: StakeType::Freeze(Resource::Bandwidth)
+            }
+            .transaction_type(),
+            TransactionType::StakeFreeze
+        );
+        assert_eq!(
+            TransactionInputType::Stake {
+                asset: Asset::mock(),
+                stake_type: StakeType::Unfreeze(Resource::Bandwidth)
+            }
+            .transaction_type(),
+            TransactionType::StakeUnfreeze
+        );
+        assert_eq!(
+            TransactionInputType::Perpetual {
+                asset: Asset::mock(),
+                perpetual_type: PerpetualType::Open {
+                    data: PerpetualConfirmData::mock(PerpetualDirection::Long, 0, None, None)
+                }
+            }
+            .transaction_type(),
+            TransactionType::PerpetualOpenPosition
+        );
+    }
+
+    #[test]
+    fn transaction_input_accessors() {
+        let stake_type = StakeType::Freeze(Resource::Bandwidth);
+        let stake_input = TransactionInputType::Stake { asset: Asset::mock(), stake_type };
+        match stake_input.get_stake_type().unwrap() {
+            StakeType::Freeze(resource) => assert_eq!(resource, &Resource::Bandwidth),
+            StakeType::Stake(_) | StakeType::Unstake(_) | StakeType::Redelegate(_) | StakeType::Rewards(_) | StakeType::Withdraw(_) | StakeType::Unfreeze(_) => {
+                panic!("expected freeze stake type")
+            }
+        }
+
+        let perpetual_type = PerpetualType::Open {
+            data: PerpetualConfirmData::mock(PerpetualDirection::Long, 11, None, None),
+        };
+        let perpetual_input = TransactionInputType::Perpetual {
+            asset: Asset::mock(),
+            perpetual_type,
+        };
+        match perpetual_input.get_perpetual_type().unwrap() {
+            PerpetualType::Open { data } => assert_eq!(data.asset_index, 11),
+            PerpetualType::Close { .. } | PerpetualType::Modify { .. } | PerpetualType::Increase { .. } | PerpetualType::Reduce { .. } => panic!("expected open perpetual type"),
+        }
+
+        assert_eq!(
+            TransactionInputType::Transfer { asset: Asset::mock() }.get_stake_type().unwrap_err(),
+            "expected stake transaction"
+        );
+        assert_eq!(
+            TransactionInputType::Transfer { asset: Asset::mock() }.get_perpetual_type().unwrap_err(),
+            "expected perpetual transaction"
+        );
+    }
+
+    #[test]
+    fn transaction_load_input_value_as_u64() {
+        let mut input = TransactionLoadInput {
+            input_type: TransactionInputType::Transfer { asset: Asset::mock() },
+            sender_address: "sender".to_string(),
+            destination_address: "destination".to_string(),
+            value: BigUint::from(123u32),
+            gas_price: GasPriceType::regular(1u64),
+            memo: None,
+            is_max_value: false,
+            metadata: TransactionLoadMetadata::None,
+        };
+
+        assert_eq!(input.value_as_u64().unwrap(), 123);
+
+        input.value = BigUint::from(u64::MAX) + BigUint::from(1u32);
+        assert_eq!(input.value_as_u64().unwrap_err().to_string(), "Invalid input: transaction amount is too large");
+    }
+}

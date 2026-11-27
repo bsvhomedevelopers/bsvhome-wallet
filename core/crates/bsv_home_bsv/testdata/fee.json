@@ -1,0 +1,6 @@
+{
+  "fee_unit": "sat/KB",
+  "fee": 100,
+  "mempool_min_fee": 100,
+  "fee_usd": "0.00001999"
+}

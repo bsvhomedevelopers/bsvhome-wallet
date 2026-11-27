@@ -1,0 +1,10 @@
+{
+  "password": "WowPay密码-Backup2026!",
+  "derivedKey": "28494f4ac37f2f3a0e1ac15ddba97271b3396bf1a2a7d45cf83f59648aa72fa8",
+  "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li_hp_m47n60p8D54WK84zV2sxXs7LtkBoN79R9Q",
+  "privateKey": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGhRANCAARrF9Hy4SxCR_i85uVjpEDydwN9gS3rM6D0oTlF2JjClk_jQuL-Gn-bjufrSnwPnhYrzjNXazFezsu2QGg3v1H1",
+  "plaintext": "{\"publicKey\":\"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li_hp_m47n60p8D54WK84zV2sxXs7LtkBoN79R9Q\",\"privateKey\":\"MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGhRANCAARrF9Hy4SxCR_i85uVjpEDydwN9gS3rM6D0oTlF2JjClk_jQuL-Gn-bjufrSnwPnhYrzjNXazFezsu2QGg3v1H1\"}",
+  "backup": "{\"version\":1,\"kind\":\"wowpay-offline-identity-backup\",\"kdf\":\"PBKDF2-HMAC-SHA256\",\"iterations\":310000,\"salt\":\"AAECAwQFBgcICQoLDA0ODw\",\"nonce\":\"EBESExQVFhcYGRob\",\"ciphertext\":\"CHRons0_oyDYcnQ-trmRxpck74zYjuxnv7qBI1cTXQZ6GGE8daq6Bvvvs4WXcPX6JjV2ck3ryAoJ6LeR-l5dX5uKuydwWQmYdLnUrPQKVmTPyGV68bTqfyHuTVPXl6EbUH3iesqJmFVQTo5CP6uw2zklxiful4QzMHp_acuhTINPpt6305TnTrj0qd32sNTrA35BCO8LmLxJ7Y_Z9e8PD-C2-aeVeS41QkL_sLEAJ0PsQ7kCPrxd5Lm3-yg31rjyiKIti2Nq2yfD4q_YSdo7I_Xg2qH9fCjGnIpv3JSu1aCizgGX88SjzHAbQg0UZkVnqESqfzqsjScST_XsB5hw1Vi--0r9nlh7uz4wTtqJhxOGvz-Uzude3qAQ9wPmx3pRwREhOjWyB2zI0QxkYBJe79MvONllhKu90MwfJHoriaTh8HFU_AIq6UlZDdts_G_bhfsWl5chyt6JIdQP_pm_K3-K\"}",
+  "actionHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "signature": "MEUCIQCYXoseq1MkptgOqRCKSi4IGcp76iM-Nv2HRg9IqBsNIgIgNFN4Nx31lWaN3FrmY8JeOmcPN7jcD7t5ziTvp8PeHrY"
+}

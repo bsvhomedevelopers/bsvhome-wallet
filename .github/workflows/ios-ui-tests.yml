@@ -1,0 +1,78 @@
+name: iOS UI CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "ios/**"
+      - "core/**"
+      - "rust-toolchain.toml"
+      - "localization/**"
+      - ".gitmodules"
+      - ".github/actions/**"
+      - ".github/workflows/ios-ui-tests.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "ios/**"
+      - "core/**"
+      - "rust-toolchain.toml"
+      - "localization/**"
+      - ".gitmodules"
+      - ".github/actions/**"
+      - ".github/workflows/ios-ui-tests.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  ui_test:
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: recursive
+
+      - name: Setup iOS CI
+        uses: ./.github/actions/setup-ios-ci
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.swiftpm
+            ios/build/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('ios/**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Install dependencies
+        working-directory: ios
+        run: just install-toolchains
+
+      - name: Build Core
+        working-directory: ios
+        run: just generate-core
+        env:
+          BSV_HOME_CORE_IOS_TARGETS: "aarch64-apple-ios-sim"
+
+      - name: Resolve SPM Dependencies
+        working-directory: ios
+        run: just spm-resolve
+
+      - name: Build for Testing
+        working-directory: ios
+        run: just build-for-testing-integration
+
+      - name: UI Tests
+        working-directory: ios
+        run: just test-integration-without-building

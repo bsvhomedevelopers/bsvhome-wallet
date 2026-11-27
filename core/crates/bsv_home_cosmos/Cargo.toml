@@ -1,0 +1,48 @@
+[package]
+name = "bsv_home_cosmos"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+bech32 = { workspace = true }
+hex = { workspace = true }
+bsv_home_hash = { path = "../bsv_home_hash" }
+bsv_home_encoding = { path = "../bsv_home_encoding" }
+primitives = { path = "../primitives" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_serializers = { path = "../serde_serializers" }
+
+# Optional RPC dependencies
+chrono = { workspace = true, features = ["serde"], optional = true }
+async-trait = { workspace = true, optional = true }
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+chain_traits = { path = "../chain_traits", optional = true }
+futures = { workspace = true, optional = true }
+number_formatter = { path = "../number_formatter", optional = true }
+
+signer = { path = "../signer", optional = true }
+k256 = { workspace = true, optional = true }
+
+num-bigint = { workspace = true }
+
+[features]
+default = []
+rpc = [
+    "dep:chrono",
+    "dep:async-trait",
+    "dep:bsv_home_client",
+    "dep:chain_traits",
+    "dep:futures",
+    "dep:number_formatter",
+]
+signer = ["dep:signer", "dep:k256", "bsv_home_encoding/protobuf"]
+reqwest = ["bsv_home_client/reqwest"]
+unit_tests = ["signer"]
+chain_integration_tests = ["rpc", "reqwest", "settings/testkit"]
+
+[dev-dependencies]
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+primitives = { path = "../primitives", features = ["testkit"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+settings = { path = "../settings", features = ["testkit"] }

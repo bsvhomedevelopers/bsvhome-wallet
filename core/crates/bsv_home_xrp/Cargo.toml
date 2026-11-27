@@ -1,0 +1,39 @@
+[package]
+name = "bsv_home_xrp"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+default = []
+signer = ["dep:bigdecimal", "dep:bsv_home_hash", "dep:signer", "dep:num-traits"]
+rpc = ["dep:chrono", "dep:chain_traits", "dep:bsv_home_client", "bsv_home_jsonrpc/client"]
+reqwest = ["bsv_home_client/reqwest", "bsv_home_jsonrpc/reqwest"]
+chain_integration_tests = ["rpc", "reqwest", "settings/testkit"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+hex = { workspace = true }
+primitives = { path = "../primitives" }
+number_formatter = { path = "../number_formatter" }
+num-bigint = { workspace = true }
+bigdecimal = { workspace = true, optional = true }
+bs58 = { workspace = true }
+bsv_home_hash = { path = "../bsv_home_hash", optional = true }
+signer = { path = "../signer", optional = true }
+num-traits = { workspace = true, optional = true }
+
+chain_traits = { path = "../chain_traits", optional = true }
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc" }
+
+chrono = { workspace = true, features = ["serde"], optional = true }
+serde_serializers = { path = "../serde_serializers", features = ["bigint"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["testkit"] }
+
+primitives = { path = "../primitives", features = ["testkit"] }
+settings = { path = "../settings", features = ["testkit"] }

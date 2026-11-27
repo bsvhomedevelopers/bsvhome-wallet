@@ -1,0 +1,93 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import BsvHomeCorePrimitives
+import Localization
+import NFT
+import Primitives
+import PrimitivesComponents
+import Store
+import Style
+import SwiftUI
+import Transactions
+
+struct TransactionsNavigationView: View {
+    @Environment(\.navigationState) private var navigationState
+    @Environment(\.viewModelFactory) private var viewModelFactory
+    @Environment(\.navigationPresenter) private var presenter
+
+    @State private var model: TransactionsViewModel
+
+    init(model: TransactionsViewModel) {
+        _model = State(wrappedValue: model)
+    }
+
+    var body: some View {
+        TransactionsScene(model: model)
+            .bindQuery(model.filterModel.query)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    FilterButton(
+                        isActive: model.filterModel.isAnyFilterSpecified,
+                        action: model.onSelectFilterButton,
+                    )
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(model.title)
+            .toolbar(.visible, for: .navigationBar)
+            .navigationDestination(for: Scenes.Transaction.self) {
+                TransactionNavigationView(
+                    model: viewModelFactory.transactionScene(
+                        transaction: $0.transaction,
+                        walletId: model.wallet.id,
+                        onHeaderAction: onSelectTransactionHeaderAction,
+                        onAddContact: { model.isPresentingSheet = .addContact($0) },
+                    ),
+                )
+            }
+            .navigationDestination(for: Scenes.Collectible.self) {
+                CollectibleScene(model: viewModelFactory.collectibleScene(wallet: model.wallet, assetData: $0.assetData, isPresentingSelectedAssetInput: presenter.isPresentingAssetInput))
+            }
+            .toast(message: $model.isPresentingToastMessage)
+            .sheet(item: $model.isPresentingSheet) { type in
+                switch type {
+                case .filter:
+                    NavigationStack {
+                        TransactionsFilterScene(model: $model.filterModel)
+                    }
+                    .presentationDetentsForCurrentDeviceSize(expandable: true)
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(Colors.WowPay.background)
+                case let .selectAsset(selectType):
+                    SelectAssetSceneNavigationStack(
+                        model: viewModelFactory.selectAssetScene(
+                            wallet: model.wallet,
+                            selectType: selectType,
+                        ),
+                    )
+                case let .addContact(action):
+                    AddContactNavigationView(action: action)
+                }
+            }
+    }
+}
+
+// MARK: - Actions
+
+extension TransactionsNavigationView {
+    private func onSelectTransactionHeaderAction(_ action: TransactionHeaderAction) {
+        Task {
+            do {
+                try await presenter.handleTransactionHeaderAction(
+                    action,
+                    wallet: model.wallet,
+                    navigationState: navigationState,
+                    nftDestination: navigationState.settings,
+                )
+            } catch {
+                model.isPresentingToastMessage = .error(Localized.Errors.errorOccurred)
+            }
+        }
+    }
+}

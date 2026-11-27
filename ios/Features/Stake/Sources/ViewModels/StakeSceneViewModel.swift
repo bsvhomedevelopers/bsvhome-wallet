@@ -1,0 +1,290 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Formatters
+import Foundation
+import enum BsvHomeCore.BsvHomeStakeAction
+import struct BsvHomeCore.BsvHomeStakeActionItem
+import struct BsvHomeCore.BsvHomeClaimRewards
+import struct BsvHomeCore.BsvHomeAssetBalance
+import protocol BsvHomeCore.BsvHomeStakeServiceProtocol
+import BsvHomeCorePrimitives
+import InfoSheet
+import Localization
+import Primitives
+import PrimitivesComponents
+import BsvHomeCoreServices
+import Store
+import SwiftUI
+import struct BsvHomeCore.BsvHomeTransferData
+
+@MainActor
+@Observable
+public final class StakeSceneViewModel {
+    private let service: any BsvHomeStakeServiceProtocol
+
+    private var delegationsState: StateViewType<Bool> = .loading
+    private let chain: StakeChain
+
+    private let formatter = ValueFormatter(style: .auto)
+
+    public let wallet: Wallet
+    public let delegationsQuery: ObservableQuery<DelegationsRequest>
+    public let validatorsQuery: ObservableQuery<ValidatorsRequest>
+    public let assetQuery: ObservableQuery<AssetRequest>
+
+    public var delegations: [Delegation] {
+        delegationsQuery.value
+    }
+
+    public var validators: [DelegationValidator] {
+        selectable(validatorsQuery.value)
+    }
+
+    public var assetData: AssetData {
+        assetQuery.value
+    }
+
+    public var isPresentingInfoSheet: InfoSheetType? = .none
+
+    public init(
+        wallet: Wallet,
+        chain: StakeChain,
+        service: any BsvHomeStakeServiceProtocol,
+    ) {
+        self.wallet = wallet
+        self.chain = chain
+        self.service = service
+        delegationsQuery = ObservableQuery(DelegationsRequest(walletId: wallet.id, assetId: chain.chain.assetId, providerType: .stake), initialValue: [])
+        validatorsQuery = ObservableQuery(ValidatorsRequest(chain: chain.chain, providerType: .stake), initialValue: [])
+        assetQuery = ObservableQuery(AssetRequest(walletId: wallet.id, assetId: chain.chain.assetId), initialValue: .with(asset: chain.chain.asset))
+    }
+
+    public var stakeInfoUrl: URL {
+        AppUrl.docs(.staking(chain.rawValue))
+    }
+
+    var title: String {
+        Localized.Transfer.Stake.title
+    }
+
+    private func selectable(_ validators: [DelegationValidator]) -> [DelegationValidator] {
+        service.selectableValidators(validators: validators.map { $0.map() }).map { $0.map() }
+    }
+
+    var stakeTitle: String {
+        Localized.Transfer.Stake.title
+    }
+
+    var rewardsTitle: String {
+        Localized.Transfer.ClaimRewards.title
+    }
+
+    var delegationsTitle: String {
+        Localized.Stake.delegations
+    }
+
+    var stakeAprModel: AprViewModel {
+        AprViewModel(apr: assetData.metadata.stakingApr ?? .zero)
+    }
+
+    var resourcesTitle: String {
+        Localized.Asset.resources
+    }
+
+    var energyField: ListItemField {
+        ListItemField(title: ResourceViewModel(resource: .energy).title, value: balanceModel.energyText)
+    }
+
+    var bandwidthField: ListItemField {
+        ListItemField(title: ResourceViewModel(resource: .bandwidth).title, value: balanceModel.bandwidthText)
+    }
+
+    var freezeTitle: String {
+        Localized.Transfer.Freeze.title
+    }
+
+    var unfreezeTitle: String {
+        Localized.Transfer.Unfreeze.title
+    }
+
+    var lockTimeField: ListItemField {
+        let now = Date.now
+        let date = now.addingTimeInterval(TimeInterval(service.lockTimeSeconds(chain: chain.chain.rawValue)))
+        let value = Self.lockTimeFormatter.string(from: now, to: date) ?? .empty
+        return ListItemField(title: Localized.Stake.lockTime, value: value)
+    }
+
+    var lockTimeInfoSheet: InfoSheetType {
+        InfoSheetType.stakeLockTime(assetModel.assetImage.placeholder)
+    }
+
+    var aprInfoSheet: InfoSheetType {
+        InfoSheetType.stakeApr(assetModel.assetImage.placeholder)
+    }
+
+    var minAmountField: ListItemField? {
+        let minAmount = service.minStakeAmount(chain: chain.chain.rawValue)
+        guard minAmount != 0 else { return .none }
+        let value = formatter.string(minAmount, decimals: Int(asset.decimals), currency: asset.symbol)
+        return ListItemField(title: Localized.Stake.minimumAmount, value: value)
+    }
+
+    var showManage: Bool {
+        stakeActions.isNotEmpty
+    }
+
+    var emptyContentModel: EmptyContentTypeViewModel {
+        EmptyContentTypeViewModel(type: .stake(symbol: assetModel.symbol))
+    }
+
+    func navigationDestination(for delegation: DelegationViewModel) -> any Hashable {
+        switch service.delegationDestination(walletType: wallet.type.map(), asset: asset.map(), delegation: delegation.delegation.map()) {
+        case let .withdraw(transfer): transfer
+        case .details: delegation.delegation
+        }
+    }
+
+    var delegationsSectionTitle: String {
+        guard case let .data(delegations) = delegationsViewState, delegations.isNotEmpty else {
+            return .empty
+        }
+        return delegationsTitle
+    }
+
+    var delegationsViewState: StateViewType<[DelegationViewModel]> {
+        let delegationModels = delegations.map { DelegationViewModel(service: service, delegation: $0, asset: asset, currencyCode: service.getCurrency()) }
+
+        switch delegationsState {
+        case .noData: return .noData
+        case .loading: return delegationModels.isEmpty ? .loading : .data(delegationModels)
+        case .data: return delegationModels.isEmpty ? .noData : .data(delegationModels)
+        case let .error(error): return .error(error)
+        }
+    }
+
+    var claimRewardsText: String {
+        formatter.string(claimRewards.value, decimals: asset.decimals.asInt, currency: asset.symbol)
+    }
+
+    var showRewards: Bool {
+        stakeAction(.claimRewards) != nil
+    }
+
+    var claimRewardsDestination: any Hashable {
+        switch claimRewards.destination {
+        case let .transfer(transfer): transfer
+        case let .amount(delegations): AmountInput(type: .stake(.rewards(delegations: delegations, validator: nil)), asset: asset)
+        }
+    }
+
+    var stakeDestination: any Hashable {
+        destination(
+            type: .stake(.stake(validators: validators.map { $0.map() }, validator: nil)),
+        )
+    }
+
+    var freezeDestination: any Hashable {
+        destination(type: .stake(.freeze(resource: Resource.bandwidth.map())))
+    }
+
+    var unfreezeDestination: any Hashable {
+        destination(type: .stake(.unfreeze(resource: Resource.bandwidth.map())))
+    }
+
+    var showFreeze: Bool {
+        stakeAction(.freeze) != nil
+    }
+
+    var showUnfreeze: Bool {
+        stakeAction(.unfreeze) != nil
+    }
+
+    var isStakeEnabled: Bool {
+        stakeAction(.stake)?.isEnabled ?? false
+    }
+
+    var stakeInfoAction: InfoSheetAction? {
+        guard stakeAction(.stake)?.requiresFrozenBalance == true else { return nil }
+        return onStakeFrozenInfo
+    }
+
+    var showTronResources: Bool {
+        service.usesFreeze(chain: chain.chain.rawValue)
+    }
+}
+
+// MARK: - Business Logic
+
+extension StakeSceneViewModel {
+    func load() async {
+        delegationsState = .loading
+        do {
+            try await service.sync(chain: chain.chain.rawValue)
+            delegationsState = .data(true)
+        } catch {
+            debugLog("Stake scene load error: \(error)")
+            delegationsState = .error(error)
+        }
+    }
+
+    func onLockTimeInfo() {
+        isPresentingInfoSheet = lockTimeInfoSheet
+    }
+
+    func onAprInfo() {
+        isPresentingInfoSheet = aprInfoSheet
+    }
+
+    func onStakeFrozenInfo() {
+        isPresentingInfoSheet = .stakeFrozenRequired
+    }
+}
+
+// MARK: - Private
+
+extension StakeSceneViewModel {
+    private static let lockTimeFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.day]
+        formatter.unitsStyle = .full
+        return formatter
+    }()
+
+    var assetModel: AssetViewModel {
+        AssetViewModel(asset: asset)
+    }
+
+    private var asset: Asset {
+        chain.chain.asset
+    }
+
+    private var stakeActions: [BsvHomeStakeActionItem] {
+        service.stakeActions(
+            walletType: wallet.type.map(),
+            chain: chain.chain.rawValue,
+            hasValidators: validators.isNotEmpty,
+            balance: BsvHomeAssetBalance(assetData.balance, assetId: asset.id, isActive: assetData.metadata.isActive),
+            delegations: delegations.map { $0.map() },
+        )
+    }
+
+    private var claimRewards: BsvHomeClaimRewards {
+        service.claimRewards(chain: chain.chain.rawValue, delegations: delegations.map { $0.map() })
+    }
+
+    private func stakeAction(_ action: BsvHomeStakeAction) -> BsvHomeStakeActionItem? {
+        stakeActions.first { $0.action == action }
+    }
+
+    private var balanceModel: BalanceViewModel {
+        BalanceViewModel(asset: asset, balance: assetData.balance, formatter: formatter)
+    }
+
+    private func destination(type: AmountType) -> any Hashable {
+        AmountInput(
+            type: type,
+            asset: asset,
+        )
+    }
+}

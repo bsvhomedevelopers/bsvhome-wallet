@@ -1,0 +1,38 @@
+{
+  "total": "1",
+  "records": [
+    {
+      "orderId": "O-usdt-bsv-test",
+      "quoteId": "Q-usdt-bsv-test",
+      "fromChain": "TRON",
+      "fromKind": "TOKEN",
+      "fromContract": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+      "toChain": "BSV",
+      "toKind": "NATIVE",
+      "toContract": "",
+      "fromAmount": "20000000",
+      "estimatedToAmount": "72258550",
+      "actualToAmount": "",
+      "depositAddress": "TBKwjUtXVsX1r724C1V52nocBgtioDjx9u",
+      "depositExtraId": "",
+      "payoutAddress": "1L2F8wYxTRagCZLnsm2engg8ngGECSeuE5",
+      "refundAddress": "TBKwjUtXVsX1r724C1V52nocBgtioDjx9u",
+      "providerDisplayName": "ChangeNOW",
+      "providerOrderId": "P-usdt-bsv-test",
+      "orderStatus": "AWAITING_DEPOSIT",
+      "verificationStatus": "NOT_REQUIRED",
+      "syncStatus": "FRESH",
+      "resolutionStatus": "OPEN",
+      "lastActivePhase": "AWAITING_DEPOSIT",
+      "sourceTxid": "",
+      "payoutTxid": "",
+      "refundTxid": "",
+      "depositExpiresAt": "",
+      "updatedAt": "2026-09-27T09:12:00Z",
+      "version": 1,
+      "reasonCode": "",
+      "requiredActions": [],
+      "adminRemark": ""
+    }
+  ]
+}

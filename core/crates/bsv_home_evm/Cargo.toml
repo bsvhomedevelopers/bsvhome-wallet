@@ -1,0 +1,55 @@
+[package]
+name = "bsv_home_evm"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+default = []
+rpc = ["dep:async-trait", "dep:chain_traits", "dep:futures", "dep:bsv_home_client", "bsv_home_jsonrpc/client"]
+indexer = ["rpc", "dep:bsv_home_alchemy", "dep:bsv_home_ankr", "dep:bsv_home_blockscout"]
+reqwest = ["rpc", "bsv_home_jsonrpc/reqwest", "bsv_home_client/reqwest"]
+signer = ["dep:alloy-consensus", "dep:signer"]
+chain_integration_tests = ["indexer", "reqwest", "primitives/testkit", "settings/testkit"]
+testkit = ["bsv_home_client?/testkit"]
+
+[dependencies]
+primitives = { path = "../primitives" }
+serde_serializers = { path = "../serde_serializers", features = ["bigint"] }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc" }
+bsv_home_alchemy = { path = "../bsv_home_alchemy", features = ["rpc"], optional = true }
+bsv_home_ankr = { path = "../bsv_home_ankr", optional = true }
+bsv_home_blockscout = { path = "../bsv_home_blockscout", optional = true }
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+bsv_home_hash = { path = "../bsv_home_hash" }
+signer = { path = "../signer", optional = true }
+
+hex = { workspace = true }
+futures = { workspace = true, optional = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true, features = ["eip712-serde"] }
+alloy-dyn-abi = { workspace = true, features = ["eip712"] }
+alloy-json-abi = { workspace = true }
+alloy-consensus = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+bigdecimal = { workspace = true }
+url = { workspace = true }
+
+# rpc feature
+chrono = { workspace = true }
+async-trait = { workspace = true, optional = true }
+chain_traits = { path = "../chain_traits", optional = true }
+
+[dev-dependencies]
+chain_traits = { path = "../chain_traits", features = ["testkit"] }
+primitives = { path = "../primitives", features = ["testkit"] }
+bsv_home_client = { path = "../bsv_home_client", features = ["testkit"] }
+bsv_home_jsonrpc = { path = "../bsv_home_jsonrpc", features = ["testkit"] }
+bsv_home_ankr = { path = "../bsv_home_ankr", features = ["testkit"] }
+bsv_home_blockscout = { path = "../bsv_home_blockscout", features = ["testkit"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+num-bigint = { workspace = true }
+settings = { path = "../settings", features = ["testkit"] }
+async-trait = { workspace = true }

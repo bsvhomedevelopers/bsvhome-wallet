@@ -1,0 +1,22 @@
+[package]
+name = "bsv_home_wallet_connect"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+num-bigint = { workspace = true }
+primitives = { path = "../primitives" }
+bsv_home_evm = { path = "../bsv_home_evm" }
+bsv_home_solana = { path = "../bsv_home_solana" }
+bsv_home_ton = { path = "../bsv_home_ton", features = ["signer"] }
+
+base64 = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+bs58 = { workspace = true }
+primitives = { path = "../primitives", features = ["testkit"] }
+bsv_home_evm = { path = "../bsv_home_evm", features = ["testkit"] }

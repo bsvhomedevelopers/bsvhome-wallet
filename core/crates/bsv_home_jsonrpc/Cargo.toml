@@ -1,0 +1,24 @@
+[package]
+name = "bsv_home_jsonrpc"
+version = { workspace = true }
+edition = { workspace = true }
+
+[features]
+default = ["types"]
+types = []
+client = ["dep:bsv_home_client", "dep:async-trait", "dep:primitives"]
+reqwest = ["client", "dep:reqwest", "dep:percent-encoding", "bsv_home_client/reqwest"]
+testkit = ["client", "bsv_home_client/testkit"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+bsv_home_client = { path = "../bsv_home_client", optional = true }
+async-trait = { workspace = true, optional = true }
+primitives = { path = "../primitives", optional = true }
+reqwest = { workspace = true, optional = true }
+percent-encoding = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

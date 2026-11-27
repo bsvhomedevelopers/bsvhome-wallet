@@ -1,0 +1,250 @@
+package com.gemwallet.android.ui.components.list_item
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import com.gemwallet.android.domains.asset.aggregates.AssetInfoDataAggregate
+import com.gemwallet.android.domains.price.values.PriceValue
+import com.gemwallet.android.domains.price.ValueDirection
+import com.gemwallet.android.ui.components.image.AssetIcon
+import com.gemwallet.android.ui.models.CryptoFormattedUIModel
+import com.gemwallet.android.ui.models.FiatFormattedUIModel
+import com.gemwallet.android.ui.models.ListPosition
+import com.gemwallet.android.ui.theme.adaptivePadding
+import com.gemwallet.android.ui.theme.alpha10
+import com.gemwallet.android.ui.theme.paddingMiddle
+import com.gemwallet.android.ui.theme.paddingHalfSmall
+import com.gemwallet.android.ui.theme.space0
+import com.gemwallet.android.ui.theme.space6
+import com.gemwallet.android.ui.theme.paddingDefault
+import com.wallet.core.primitives.Asset
+
+@Composable
+private fun assetListItemContentPadding(): Dp {
+    return adaptivePadding(default = paddingMiddle, compact = space6)
+}
+
+@Composable
+fun AssetListItem(
+    asset: AssetInfoDataAggregate,
+    modifier: Modifier = Modifier,
+    listPosition: ListPosition,
+    support: (@Composable () -> Unit)? = assetPriceSupport(asset.price),
+    badge: String? = null,
+    trailing: (@Composable () -> Unit)? = { getBalanceInfo(asset).invoke() },
+) {
+    ListItem(
+        modifier = modifier,
+        listPosition = listPosition,
+        minHeight = ListItemDefaults.iconMinHeight,
+        contentPadding = assetListItemContentPadding(),
+        titleSubtitleSpacing = space0,
+        leading = @Composable { AssetIcon(asset.asset) },
+        title = @Composable { ListItemTitleText(asset.title, { Badge(text = badge) }) },
+        subtitle = support,
+        trailing = if (trailing == null) null else {
+            { trailing.invoke() }
+        }
+    )
+}
+
+@Composable
+fun AssetListItem(
+    asset: Asset,
+    listPosition: ListPosition,
+    modifier: Modifier = Modifier,
+    support: @Composable (() -> Unit)? = null,
+    badge: String? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    ListItem(
+        modifier = modifier,
+        listPosition = listPosition,
+        minHeight = ListItemDefaults.iconMinHeight,
+        contentPadding = assetListItemContentPadding(),
+        titleSubtitleSpacing = space0,
+        leading = @Composable { AssetIcon(asset) },
+        title = @Composable { ListItemTitleText(asset.name, { Badge(text = badge) }) },
+        subtitle = support,
+        trailing = if (trailing == null) null else {
+            { trailing.invoke() }
+        }
+    )
+}
+
+@Composable
+fun Badge(text: String?) {
+    if (text.isNullOrEmpty()) {
+        return
+    }
+    Text(
+        modifier = Modifier,
+        text = text,
+        color = MaterialTheme.colorScheme.secondary,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.W400,
+    )
+}
+
+fun assetPriceSupport(price: PriceValue?): (@Composable () -> Unit)? {
+    if (price == null || price.valueFormatted.isEmpty()) {
+        return null
+    }
+    return {
+        PriceInfo(
+            price.valueFormatted,
+            price.changePercentageFormatted,
+            price.state,
+            style = MaterialTheme.typography.bodyMedium,
+            internalPadding = paddingHalfSmall,
+        )
+    }
+}
+
+@Composable
+fun PriceInfo(
+    price: String,
+    changes: String,
+    state: ValueDirection,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    isHighlightPercentage: Boolean = false,
+    internalPadding: Dp = paddingHalfSmall,
+) {
+    val color = state.color()
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(internalPadding)
+    ) {
+        Text(
+            modifier = Modifier.weight(1f, false),
+            text = price,
+            maxLines = 1,
+            overflow = TextOverflow.MiddleEllipsis,
+            color = if (isHighlightPercentage) color else MaterialTheme.colorScheme.secondary,
+            style = style,
+        )
+        Text(
+            modifier = if (isHighlightPercentage) {
+                Modifier.background(color.copy(alpha = alpha10), MaterialTheme.shapes.small)
+            } else {
+                Modifier
+            },
+            text = changes,
+            color = color,
+            style = style,
+        )
+    }
+}
+
+fun getBalanceInfo(asset: AssetInfoDataAggregate): @Composable () -> Unit
+        = getBalanceInfo(asset.balance, asset.balanceEquivalent, asset.isZeroBalance)
+
+fun getBalanceInfo(crypto: CryptoFormattedUIModel, fiatFormattedUIModel: FiatFormattedUIModel): @Composable () -> Unit {
+    return (@Composable {
+        val color = MaterialTheme.colorScheme.let {
+            if (crypto.isZeroAmount) it.secondary else it.onSurface
+        }
+        BalanceInfo(
+            crypto = crypto.cryptoFormatted,
+            equivalent = fiatFormattedUIModel.fiatFormatted.takeIf { !crypto.isZeroAmount }.orEmpty(),
+            color = color,
+        )
+    })
+}
+
+fun getBalanceInfo(crypto: String, equivalent: String, isZero: Boolean): @Composable () -> Unit {
+    return (@Composable {
+        val color = MaterialTheme.colorScheme.let {
+            if (isZero) it.secondary else it.onSurface
+        }
+        BalanceInfo(
+            crypto = crypto,
+            equivalent = equivalent.takeIf { !isZero }.orEmpty(),
+            color = color,
+        )
+    })
+}
+
+@Composable
+private fun BalanceInfo(
+    crypto: String,
+    equivalent: String,
+    color: Color,
+) {
+    Column(
+        horizontalAlignment = Alignment.End
+    ) {
+        Text(
+            modifier = Modifier,
+            text = crypto,
+            maxLines = 1,
+            overflow = TextOverflow.MiddleEllipsis,
+            textAlign = TextAlign.End,
+            style = MaterialTheme.typography.titleMedium,
+            color = color,
+        )
+        if (equivalent.isNotEmpty()) {
+            Text(
+                modifier = Modifier,
+                text = equivalent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                color = MaterialTheme.colorScheme.secondary,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+@Composable
+fun PriceInfo(
+    priceValue: String,
+    changedPercentages: String,
+    state: ValueDirection,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.secondary,
+    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    isHighlightPercentage: Boolean = false,
+    internalPadding: Dp = paddingDefault,
+) {
+    val highlightColor = state.color()
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = priceValue,
+            color = if (isHighlightPercentage) highlightColor else color,
+            style = style,
+        )
+        Spacer(modifier = Modifier.width(internalPadding))
+        Text(
+            modifier = if (isHighlightPercentage) {
+                Modifier.background(highlightColor.copy(alpha = alpha10), MaterialTheme.shapes.small)
+            } else {
+                Modifier
+            }.padding(paddingHalfSmall),
+            text = changedPercentages,
+            color = highlightColor,
+            style = style,
+        )
+    }
+}

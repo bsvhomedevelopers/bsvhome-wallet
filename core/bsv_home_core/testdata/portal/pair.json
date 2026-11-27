@@ -1,0 +1,23 @@
+{
+  "from": {
+    "chain": "BSV",
+    "kind": "NATIVE",
+    "contract": "",
+    "symbol": "BSV",
+    "network": "Bitcoin SV",
+    "scale": 8
+  },
+  "to": {
+    "chain": "TRON",
+    "kind": "TOKEN",
+    "contract": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+    "symbol": "USDT",
+    "network": "TRON / TRC20",
+    "scale": 6
+  },
+  "providerCode": "TEST_PROVIDER",
+  "providerDisplayName": "Test provider",
+  "floatingRate": true,
+  "amountFrom": true,
+  "amountTo": false
+}

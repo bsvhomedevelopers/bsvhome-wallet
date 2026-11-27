@@ -1,0 +1,356 @@
+import class BsvHomeCore.BsvHomeTransactionDetailsService
+import BsvHomeCorePrimitivesTestKit
+import Components
+import Foundation
+import enum BsvHomeCore.BsvHomeTransactionDetailRow
+import Localization
+import Primitives
+import PrimitivesComponents
+import PrimitivesTestKit
+@testable import Store
+import Style
+import Testing
+@testable import Transactions
+
+@MainActor
+struct TransactionSceneViewModelTests {
+    @Test
+    func itemModelReturnsNonEmpty() {
+        let model = TransactionSceneViewModel.mock()
+
+        verifyNonEmpty(model.item(for: BsvHomeTransactionDetailRow.header))
+        verifyNonEmpty(model.item(for: BsvHomeTransactionDetailRow.date))
+        verifyNonEmpty(model.item(for: BsvHomeTransactionDetailRow.status))
+        verifyNonEmpty(model.item(for: BsvHomeTransactionDetailRow.network))
+        verifyNonEmpty(model.item(for: BsvHomeTransactionDetailRow.fee))
+        verifyNonEmpty(model.item(for: BsvHomeTransactionDetailRow.explorer))
+    }
+
+    @Test
+    func headerItemModel() {
+        let model = TransactionSceneViewModel.mock(
+            type: TransactionType.transfer,
+            direction: TransactionDirection.outgoing,
+        )
+        let itemModel = model.item(for: BsvHomeTransactionDetailRow.header)
+
+        verifyNonEmpty(itemModel)
+    }
+
+    @Test
+    func nftHeaderAction() {
+        let assetId = NFTAssetId(chain: .ethereum, contractAddress: "0xasset", tokenId: "1")
+        var selectedAction: TransactionHeaderAction?
+        let model = TransactionSceneViewModel(
+            transaction: TransactionExtended.mock(
+                transaction: Transaction.mock(
+                    type: .transferNFT,
+                    metadata: .encode(TransactionNFTTransferMetadata(assetId: assetId, name: "NFT")),
+                ),
+            ),
+            walletId: .mock(),
+            service: BsvHomeTransactionDetailsService.mock(),
+            onHeaderAction: { selectedAction = $0 },
+        )
+
+        #expect(model.onTransactionHeaderTap != nil)
+
+        model.onTransactionHeaderTap?(.header)
+
+        #expect(selectedAction == .nft(assetId: assetId))
+    }
+
+    @Test
+    func nftHeaderActionRequiresHandler() {
+        let model = TransactionSceneViewModel(
+            transaction: TransactionExtended.mock(
+                transaction: Transaction.mock(
+                    type: .transferNFT,
+                    metadata: .encode(TransactionNFTTransferMetadata(assetId: .mock(), name: "NFT")),
+                ),
+            ),
+            walletId: .mock(),
+            service: BsvHomeTransactionDetailsService.mock(),
+        )
+
+        #expect(model.onTransactionHeaderTap == nil)
+    }
+
+    @Test
+    func swapButtonItemModel() {
+        let swapModel = TransactionSceneViewModel.mock(type: TransactionType.swap, state: TransactionState.confirmed)
+        let swapItem = swapModel.item(for: BsvHomeTransactionDetailRow.swapAgain)
+
+        if case .empty = swapItem {
+        } else if case .swapAgain = swapItem {
+        } else {
+            Issue.record("Unexpected swap button model type")
+        }
+
+        let transferModel = TransactionSceneViewModel.mock(type: TransactionType.transfer)
+        let transferItem = transferModel.item(for: BsvHomeTransactionDetailRow.swapAgain)
+
+        if case .empty = transferItem {
+        } else {
+            Issue.record("Expected empty for non-swap transaction")
+        }
+    }
+
+    @Test
+    func dateItemModel() {
+        let testDate = Date(timeIntervalSince1970: 1_609_459_200)
+        let model = TransactionSceneViewModel.mock(createdAt: testDate)
+
+        if case let .listItem(item) = model.item(for: BsvHomeTransactionDetailRow.date) {
+            #expect(item.title == Localized.Transaction.date)
+            #expect(item.subtitle != nil)
+        } else {
+            Issue.record("Expected listItem for date")
+        }
+    }
+
+    @Test
+    func statusItemModel() {
+        let confirmedModel = TransactionSceneViewModel.mock(state: TransactionState.confirmed)
+        if case let .listItem(item) = confirmedModel.item(for: BsvHomeTransactionDetailRow.status) {
+            #expect(item.title == Localized.Transaction.status)
+            #expect(item.subtitleStyle.color == Colors.green)
+        } else {
+            Issue.record("Expected listItem for confirmed status")
+        }
+
+        let pendingModel = TransactionSceneViewModel.mock(state: TransactionState.pending)
+        if case let .listItem(item) = pendingModel.item(for: BsvHomeTransactionDetailRow.status) {
+            if case .progressView = item.subtitleTagType {
+            } else {
+                Issue.record("Expected progress indicator for pending status")
+            }
+            #expect(item.subtitleStyle.color == Colors.orange)
+        } else {
+            Issue.record("Expected listItem for pending status")
+        }
+
+        let inTransitModel = TransactionSceneViewModel.mock(state: TransactionState.inTransit)
+        if case let .listItem(item) = inTransitModel.item(for: BsvHomeTransactionDetailRow.status) {
+            #expect(item.subtitle == Localized.Transaction.Status.pending)
+            if case .progressView = item.subtitleTagType {
+            } else {
+                Issue.record("Expected progress indicator for in-transit status")
+            }
+            #expect(item.subtitleStyle.color == Colors.orange)
+        } else {
+            Issue.record("Expected listItem for in-transit status")
+        }
+    }
+
+    @Test
+    func swapProgressItemModel() {
+        let model = TransactionSceneViewModel.swapProgressMock(state: .inTransit, fromAsset: .mockEthereum(), toAsset: .mockNear())
+
+        if case let .swapProgress(progress) = model.item(for: BsvHomeTransactionDetailRow.swapProgress) {
+            #expect(progress.transfer.title == Localized.Transfer.title)
+            #expect(progress.transfer.subtitle == "1.0000 ETH (Ethereum)")
+            #expect(progress.transfer.status == .completed)
+            #expect(progress.swap.title == Localized.Wallet.swap)
+            #expect(progress.swap.subtitle == "NEAR Intents")
+            #expect(progress.swap.status == .pending)
+            #expect(progress.estimatedTime == "≈ 12 min")
+        } else {
+            Issue.record("Expected swap progress for in-transit cross-chain swap")
+        }
+        if case .empty = model.item(for: .estimatedConfirmation) {} else {
+            Issue.record("Expected cross-chain estimate to be hidden from transaction details")
+        }
+        if case .empty = TransactionSceneViewModel.mock(type: .transfer, state: .pending).item(for: BsvHomeTransactionDetailRow.swapProgress) {} else {
+            Issue.record("Expected no swap progress for a transfer")
+        }
+    }
+
+    @Test
+    func participantItemModel() {
+        let transaction = TransactionExtended.mock(
+            transaction: Transaction.mock(
+                type: .transfer,
+                direction: .incoming,
+                from: "0xSenderAddress",
+                to: "0xRecipientAddress",
+            ),
+        )
+        let modelWithAddresses = TransactionSceneViewModel(
+            transaction: transaction,
+            walletId: .mock(),
+            service: BsvHomeTransactionDetailsService.mock(),
+        )
+
+        if case let .participant(item) = modelWithAddresses.item(for: BsvHomeTransactionDetailRow.participant) {
+            #expect(item.title == Localized.Transaction.sender)
+            #expect(item.account.address == "0xSenderAddress")
+        } else {
+            Issue.record("Expected participant item for incoming transfer")
+        }
+
+        let swapModel = TransactionSceneViewModel.mock(type: TransactionType.swap)
+        if case .empty = swapModel.item(for: BsvHomeTransactionDetailRow.participant) {
+        } else {
+            Issue.record("Expected empty for swap participant")
+        }
+    }
+
+    @Test
+    func memoItemModel() {
+        let modelWithMemo = TransactionSceneViewModel.mock(assetId: .mock(.cosmos), memo: "Test memo")
+        if case let .listItem(item) = modelWithMemo.item(for: BsvHomeTransactionDetailRow.memo) {
+            #expect(item.title == Localized.Transfer.memo)
+            #expect(item.subtitle == "Test memo")
+        } else {
+            Issue.record("Expected listItem for memo")
+        }
+
+        let modelNoMemo = TransactionSceneViewModel.mock(assetId: .mock(.cosmos), memo: nil)
+        if case .empty = modelNoMemo.item(for: BsvHomeTransactionDetailRow.memo) {
+        } else {
+            Issue.record("Expected empty for nil memo")
+        }
+
+        let modelEmptyMemo = TransactionSceneViewModel.mock(assetId: .mock(.cosmos), memo: "")
+        if case .empty = modelEmptyMemo.item(for: BsvHomeTransactionDetailRow.memo) {
+        } else {
+            Issue.record("Expected empty for empty memo")
+        }
+    }
+
+    @Test
+    func networkItemModel() {
+        let model = TransactionSceneViewModel.mock()
+
+        if case let .network(title, subtitle, _) = model.item(for: BsvHomeTransactionDetailRow.network) {
+            #expect(title == Localized.Transfer.network)
+            #expect(subtitle == "Bitcoin")
+        } else {
+            Issue.record("Expected network item for network")
+        }
+    }
+
+    @Test
+    func providerItemModel() {
+        let model = TransactionSceneViewModel.mock()
+        if case .empty = model.item(for: BsvHomeTransactionDetailRow.provider) {
+        } else {
+            Issue.record("Expected empty for provider")
+        }
+    }
+
+    @Test
+    func feeItemModel() {
+        let model = TransactionSceneViewModel.mock()
+
+        if case let .fee(item) = model.item(for: BsvHomeTransactionDetailRow.fee) {
+            #expect(item.title == Localized.Transfer.networkFee)
+            #expect(item.infoAction != nil)
+        } else {
+            Issue.record("Expected listItem for fee")
+        }
+    }
+
+    @Test
+    func explorerLinkItemModel() {
+        let model = TransactionSceneViewModel.mock()
+
+        if case let .explorer(url, text) = model.item(for: BsvHomeTransactionDetailRow.explorer) {
+            #expect(url.absoluteString == "https://blockchair.com/bitcoin/transaction/1")
+            #expect(text == "View on Blockchair")
+        } else {
+            Issue.record("Expected explorer item for explorer link")
+        }
+    }
+
+    @Test
+    func sectionsComeFromCoreWithOnlyTheRowsTheTransactionHas() {
+        let transfer = TransactionSceneViewModel.mock(assetId: .mock(.cosmos), memo: "gm").sections
+        #expect(transfer.map(\.values) == [[.header], [.date, .status, .participant, .memo, .network], [.fee], [.explorer]])
+
+        let swap = TransactionSceneViewModel.swapProgressMock(state: .inTransit, fromAsset: .mockEthereum(), toAsset: .mockNear()).sections
+        #expect(swap.map(\.values) == [[.header], [.swapProgress], [.date, .status, .rate, .network, .provider], [.fee], [.explorer]])
+    }
+
+    @Test
+    func estimatedConfirmationItemModel() {
+        let pending = TransactionSceneViewModel.mock(state: .pending, confirmationEtaSeconds: 720)
+
+        guard case let .listItem(item) = pending.item(for: .estimatedConfirmation) else {
+            Issue.record("Expected estimated confirmation item")
+            return
+        }
+        #expect(item.subtitle == "≈ 12 min")
+        if case .empty = TransactionSceneViewModel.mock(state: .confirmed, confirmationEtaSeconds: 720).item(for: .estimatedConfirmation) {} else {
+            Issue.record("Expected confirmed transaction estimate to be hidden")
+        }
+    }
+
+    private func verifyNonEmpty(_ model: TransactionItemModel) {
+        if case .empty = model {
+            Issue.record("Expected non-empty model")
+        }
+    }
+}
+
+extension TransactionSceneViewModel {
+    static func mock(
+        type: TransactionType = .transfer,
+        state: TransactionState = .confirmed,
+        direction: TransactionDirection = .outgoing,
+        assetId: AssetId = .mock(),
+        asset: Asset = .mock(),
+        assets: [Asset] = [],
+        toAddress: String = "participant_address",
+        memo: String? = nil,
+        metadata: AnyCodableValue? = nil,
+        confirmationEtaSeconds: UInt32? = nil,
+        createdAt _: Date = Date(),
+    ) -> TransactionSceneViewModel {
+        TransactionSceneViewModel(
+            transaction: TransactionExtended.mock(
+                transaction: Transaction.mock(
+                    type: type,
+                    state: state,
+                    direction: direction,
+                    assetId: assetId,
+                    to: toAddress,
+                    memo: memo,
+                    metadata: metadata,
+                ),
+                asset: asset,
+                assets: assets,
+                confirmationEtaSeconds: confirmationEtaSeconds,
+            ),
+            walletId: .mock(),
+            service: BsvHomeTransactionDetailsService.mock(),
+        )
+    }
+
+    static func swapProgressMock(
+        state: TransactionState,
+        fromAsset: Asset,
+        toAsset: Asset,
+        provider: SwapProvider? = .nearIntents,
+        confirmationEtaSeconds: UInt32? = 720,
+    ) -> TransactionSceneViewModel {
+        mock(
+            type: .swap,
+            state: state,
+            assetId: fromAsset.id,
+            asset: fromAsset,
+            assets: [fromAsset, toAsset],
+            metadata: AnyCodableValue.encode(
+                TransactionSwapMetadata.mock(
+                    fromAsset: fromAsset.id,
+                    fromValue: "1000000000000000000",
+                    toAsset: toAsset.id,
+                    toValue: "200",
+                    provider: provider?.rawValue,
+                ),
+            ),
+            confirmationEtaSeconds: confirmationEtaSeconds,
+        )
+    }
+}

@@ -1,0 +1,139 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import protocol BsvHomeCore.BsvHomeAvatarServiceProtocol
+import Components
+import Foundation
+import Localization
+import Primitives
+import PrimitivesComponents
+import Store
+import Style
+import SwiftUI
+
+@MainActor
+@Observable
+public final class WalletImageViewModel: Sendable {
+    public enum Source {
+        case onboarding
+        case wallet
+    }
+
+    struct NFTAssetImageItem: Identifiable {
+        let id: String
+        let assetImage: AssetImage
+    }
+
+    public let source: Source
+    private let avatarService: any BsvHomeAvatarServiceProtocol
+
+    public let walletQuery: ObservableQuery<WalletRequest>
+    public let nftQuery: ObservableQuery<NFTRequest>
+    var isPresentingAlertMessage: AlertMessage?
+
+    public var wallet: Wallet {
+        walletQuery.value
+    }
+
+    public var nftDataList: [NFTData] {
+        nftQuery.value
+    }
+
+    let emojiViewSize: Sizing = .image.extraLarge
+    let emojiList: [EmojiValue] = Array(Emoji.WalletAvatar.allCases.map { EmojiValue(emoji: $0.rawValue, color: Colors.grayVeryLight) })
+
+    public init(
+        wallet: Wallet,
+        source: Source = .wallet,
+        avatarService: any BsvHomeAvatarServiceProtocol,
+    ) {
+        self.source = source
+        self.avatarService = avatarService
+        walletQuery = ObservableQuery(WalletRequest(walletId: wallet.id), initialValue: wallet)
+        nftQuery = ObservableQuery(NFTRequest(walletId: wallet.id, filter: .all), initialValue: [])
+    }
+
+    var title: String {
+        switch source {
+        case .onboarding: Localized.Wallet.New.title
+        case .wallet: Localized.Common.avatar
+        }
+    }
+
+    var emptyContentModel: EmptyContentTypeViewModel {
+        EmptyContentTypeViewModel(type: .nfts(action: nil))
+    }
+
+    var hasAvatar: Bool {
+        WalletViewModel(wallet: wallet).hasAvatar
+    }
+
+    func avatarAssetImage(for wallet: Wallet) -> AssetImage {
+        WalletViewModel(wallet: wallet).avatarImage
+    }
+
+    func buildNftAssetsItems(from list: [NFTData]) -> [NFTAssetImageItem] {
+        list
+            .map(\.assets)
+            .reduce([], +)
+            .map {
+                NFTAssetImageItem(
+                    id: $0.id.identifier,
+                    assetImage: AssetImage(
+                        type: .text($0.name),
+                        imageURL: $0.images.preview.url.asURL,
+                        placeholder: nil,
+                        chainPlaceholder: nil,
+                    ),
+                )
+            }
+    }
+
+    var nftColumns: [GridItem] {
+        Array(repeating: GridItem(spacing: .medium), count: 2)
+    }
+
+    // MARK: - Public methods
+
+    public func setImage(from url: URL) async {
+        do {
+            try await avatarService.setImage(url: url, for: wallet)
+        } catch {
+            isPresentingAlertMessage = AlertMessage(error: error)
+        }
+    }
+
+    public func onRemoveAvatar() {
+        Task {
+            do {
+                try await avatarService.removeImage(for: wallet)
+            } catch {
+                isPresentingAlertMessage = AlertMessage(error: error)
+            }
+        }
+    }
+
+    public func setAvatarEmoji(value: EmojiValue) {
+        if let image = drawImage(color: value.color.uiColor, text: value.emoji) {
+            setImage(image)
+        }
+    }
+
+    // MARK: - Private methods
+
+    private func drawImage(color: UIColor, text: String) -> UIImage? {
+        EmojiAvatarRenderer.image(emoji: text, size: emojiViewSize, color: color)
+    }
+
+    private func setImage(_ image: UIImage) {
+        Task {
+            do {
+                guard let data = image.compress() else {
+                    throw AnyError("Compression image failed")
+                }
+                try await avatarService.setImage(data: data, for: wallet)
+            } catch {
+                isPresentingAlertMessage = AlertMessage(error: error)
+            }
+        }
+    }
+}

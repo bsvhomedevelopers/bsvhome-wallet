@@ -1,0 +1,38 @@
+name: Setup Rust CI
+description: Restore Rust cache, configure sccache, and install just.
+
+inputs:
+  restore-cache:
+    description: Restore the shared Rust cargo cache.
+    required: false
+    default: "true"
+  shared-key:
+    description: Shared key for Swatinem/rust-cache.
+    required: false
+    default: ci-rust
+  sccache:
+    description: Configure sccache.
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Configure Cargo color
+      shell: bash
+      run: echo "CARGO_TERM_COLOR=always" >> "$GITHUB_ENV"
+
+    - name: Restore cargo cache
+      if: ${{ inputs.restore-cache == 'true' }}
+      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      with:
+        shared-key: ${{ inputs.shared-key }}
+        workspaces: "core -> target"
+
+    - name: Run sccache-cache
+      if: ${{ inputs.sccache == 'true' }}
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
+    - name: Install just
+      uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+      with:
+        just-version: "1.50.0"

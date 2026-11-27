@@ -1,0 +1,40 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Foundation
+import GRDB
+import Primitives
+
+struct WalletRecordInfo: FetchableRecord, Codable {
+    var wallet: WalletRecord
+    var accounts: [AccountRecord]
+}
+
+extension WalletRecordInfo {
+    func mapToWallet() -> Wallet {
+        Wallet(
+            id: wallet.id,
+            externalId: wallet.externalId,
+            name: wallet.name,
+            index: wallet.index.asInt32,
+            type: wallet.type,
+            accounts: accounts.map { $0.mapToAccount() },
+            isPinned: wallet.isPinned,
+            imageUrl: wallet.imageUrl,
+            source: wallet.source,
+        )
+    }
+}
+
+struct WalletConnectionInfo: FetchableRecord, Codable {
+    var wallet: WalletRecordInfo
+    var connection: WalletConnectionRecord
+}
+
+extension WalletConnectionInfo {
+    func mapToWalletConnection() -> WalletConnection {
+        WalletConnection(
+            session: connection.session,
+            wallet: wallet.mapToWallet(),
+        )
+    }
+}

@@ -1,0 +1,51 @@
+use std::sync::Mutex;
+
+use async_trait::async_trait;
+use primitives::{Asset, AssetBasic, AssetFull, AssetId, WalletId};
+
+use super::BsvHomeAssetStore;
+use crate::services::error::BsvHomeServiceError;
+
+#[derive(Default)]
+pub struct MemoryAssetStore {
+    assets: Mutex<Vec<Asset>>,
+    pub added_balances: Mutex<Vec<(WalletId, Vec<AssetId>, bool)>>,
+}
+
+#[async_trait]
+impl BsvHomeAssetStore for MemoryAssetStore {
+    async fn get_asset_ids(&self, asset_ids: Vec<AssetId>) -> Result<Vec<AssetId>, BsvHomeServiceError> {
+        Ok(self.get_assets(asset_ids).await?.into_iter().map(|asset| asset.id).collect())
+    }
+    async fn get_assets(&self, asset_ids: Vec<AssetId>) -> Result<Vec<Asset>, BsvHomeServiceError> {
+        Ok(self.assets.lock().unwrap().iter().filter(|asset| asset_ids.contains(&asset.id)).cloned().collect())
+    }
+    async fn save_assets(&self, assets: Vec<AssetBasic>) -> Result<(), BsvHomeServiceError> {
+        self.assets.lock().unwrap().extend(assets.into_iter().map(|asset| asset.asset));
+        Ok(())
+    }
+    async fn save_asset(&self, asset: AssetFull) -> Result<(), BsvHomeServiceError> {
+        self.assets.lock().unwrap().push(asset.asset);
+        Ok(())
+    }
+    async fn add_missing_balances(&self, wallet_id: WalletId, asset_ids: Vec<AssetId>) -> Result<(), BsvHomeServiceError> {
+        self.added_balances.lock().unwrap().push((wallet_id, asset_ids, false));
+        Ok(())
+    }
+    async fn add_balances(&self, wallet_id: WalletId, asset_ids: Vec<AssetId>, enabled: bool) -> Result<(), BsvHomeServiceError> {
+        self.added_balances.lock().unwrap().push((wallet_id, asset_ids, enabled));
+        Ok(())
+    }
+    async fn set_buyable_assets(&self, _asset_ids: Vec<AssetId>) -> Result<(), BsvHomeServiceError> {
+        Ok(())
+    }
+    async fn set_sellable_assets(&self, _asset_ids: Vec<AssetId>) -> Result<(), BsvHomeServiceError> {
+        Ok(())
+    }
+    async fn set_swappable_assets(&self, _asset_ids: Vec<AssetId>) -> Result<(), BsvHomeServiceError> {
+        Ok(())
+    }
+    async fn set_stakeable_assets(&self, _asset_ids: Vec<AssetId>) -> Result<(), BsvHomeServiceError> {
+        Ok(())
+    }
+}

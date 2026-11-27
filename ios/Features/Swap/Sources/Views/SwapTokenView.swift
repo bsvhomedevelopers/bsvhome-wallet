@@ -1,0 +1,77 @@
+// Copyright (c). Gem Wallet. All rights reserved.
+
+import Components
+import Primitives
+import Style
+import SwiftUI
+
+struct SwapTokenView: View {
+    let model: SwapTokenViewModel
+    @Binding var text: String
+    var showLoading: Bool = false
+    var onBalanceAction: () -> Void
+    var onSelectAssetAction: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: .small) {
+                inputView
+                fiatBalanceView
+            }
+
+            VStack(alignment: .trailing, spacing: .small) {
+                assetActionView
+                availableBalanceView
+            }
+        }
+    }
+
+    private var inputView: some View {
+        HStack {
+            if showLoading {
+                LoadingView()
+            }
+            TextField(showLoading ? "" : model.amountPlaceholder, text: $text)
+                .keyboardType(.decimalPad)
+                .foregroundStyle(Colors.black)
+                .font(.app.title1)
+                .disabled(!model.interaction.isAmountEditable)
+                .multilineTextAlignment(.leading)
+        }
+    }
+
+    private var fiatBalanceView: some View {
+        Text(model.fiatBalance(amount: text) ?? " ")
+            .lineLimit(1, reservesSpace: true)
+            .font(.app.callout)
+            .foregroundStyle(Colors.secondaryText)
+    }
+
+    private var assetActionView: some View {
+        Button(role: .none) {
+            onSelectAssetAction()
+        } label: {
+            HStack {
+                if let assetImage = model.assetImage {
+                    AssetImageView(assetImage: assetImage)
+                }
+                Text(model.actionTitle)
+                    .textStyle(TextStyle(font: .body, color: .primary, fontWeight: .medium))
+                    .lineLimit(1)
+                SwapChevronView()
+            }
+            .frame(height: .image.asset)
+        }
+        .disabled(!model.interaction.isAssetSelectable)
+    }
+
+    private var availableBalanceView: some View {
+        Button(action: onBalanceAction) {
+            Text(model.availableBalanceText ?? " ")
+                .lineLimit(1, reservesSpace: true)
+                .font(.app.callout)
+                .foregroundStyle(Colors.secondaryText)
+        }
+        .disabled(model.isBalanceDisabled)
+    }
+}

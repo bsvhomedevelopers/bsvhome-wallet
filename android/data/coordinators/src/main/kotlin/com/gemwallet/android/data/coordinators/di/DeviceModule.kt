@@ -1,0 +1,18 @@
+package com.gemwallet.android.data.coordinators.di
+
+import com.gemwallet.android.application.device.cases.SwitchPushEnabled
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+import uniffi.gemstone.GemDeviceKeyService
+import uniffi.gemstone.GemSecureStore
+
+@InstallIn(SingletonComponent::class)
+@Module
+object DeviceModule {
+    @Provides
+    @Singleton
+    fun provideDeviceKeyService(secureStore: GemSecureStore): GemDeviceKeyService = GemDeviceKeyService(secureStore)
+}

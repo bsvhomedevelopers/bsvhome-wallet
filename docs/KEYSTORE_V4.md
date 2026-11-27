@@ -1,0 +1,271 @@
+# BsvHome Keystore v4 Implementation Source of Truth
+
+Last checked against implementation: 2026-10-05 (BSV HD additions; other contracts retain their previous review).
+
+This is the short as-built reference for BsvHome Keystore v4. The long design doc keeps history and rationale; this file records the current implementation contract. The code remains canonical.
+
+## One-Line Model
+
+BsvHome Keystore v4 stores one encrypted secret file per controlled wallet. Wallet/account metadata stays in the mobile databases. The keystore file id is deterministic from the wallet id.
+
+## Core Ownership
+
+- `bsv_home_keystore`: BIP-39 helpers, v4 encrypted file format, v3 WalletCore reader, raw secret storage. The `Keystore` trait is the backend-neutral contract (import, decrypt, verify, change password, list, delete); `FileKeystore` is its unix file backend (owner-only files, atomic rename, process-global lock). Sealing and opening a v4 secret lives in `storage/secret.rs`, so a browser backend only has to supply record IO. `open`, `import_v3`, `delete_v3`, `inspect_path`, and `verify_path` are file-backend-only.
+- `bsv_home_derivation`: wallet id derivation, account derivation, private-key import validation, chain address creation, account public keys (`Account.extended_public_key`).
+- `bsv_home_auth`: shared device-auth header format (Ed25519 build + verify), used by both the client and the backend.
+- `bsv_home_core`: UniFFI boundary over `bsv_home_keystore` and `bsv_home_derivation`, plus keystore-internal signing (`BsvHomeKeystore.sign`/`sign_auth`, `MessageSigner.sign_with_keystore`) routed over the per-chain `bsv_home_*` signer crates, and the client device-auth wrappers.
+- `BsvHomeWalletService` owns create/import/delete/export orchestration, duplicate detection, wallet-store updates, current-wallet changes, and subscription invalidation. Mobile apps provide the database, file, authentication, and secure-password adapters plus UI.
+
+`bsv_home_keystore` must stay secret-storage-only. It must not depend on app primitives, chain crates, signer, or account derivation. The signing dispatch lives in `bsv_home_core`, not in `bsv_home_keystore`.
+
+## Keystore ID
+
+- The v4 `keystore_id` is `keystore_id_for_wallet(wallet.id)`.
+- It is a deterministic UUID v5 from the wallet id, using the Rust `KeystoreId::from_wallet_id` namespace.
+- It is a filename and authenticated header field only. It is not secret material and is not KDF input.
+- Public keystore id inputs accept only canonical lowercase UUID v4 or v5.
+- Real v4 wallet files should use v5. UUID v4 is accepted for legacy tests/temp/direct-id cases.
+- Never infer migration state from "is this string a UUID". WalletCore v3 ids can also be UUIDs.
+
+File path:
+
+```text
+<base_dir>/<keystore_id>.json
+```
+
+## v4 File Format
+
+JSON layout (see [crates/bsv_home_keystore/README.md](../core/crates/bsv_home_keystore/README.md) for the full example):
+
+```json
+{
+  "version": 4,
+  "id": "<uuid v5>",
+  "kind": "mnemonic | private_key | hd_recovery",
+  "crypto": {
+    "kdf": { "algorithm": "argon2id", "memory_kib": 19456, "iterations": 2, "parallelism": 1, "salt": "<hex>", "output_len": 32 },
+    "cipher": { "algorithm": "aes-256-gcm", "nonce": "<hex>", "tag_len": 16 },
+    "ciphertext": "<hex, tag appended>"
+  }
+}
+```
+
+The plaintext inside the ciphertext is the raw secret bytes (UTF-8 phrase or raw key), interpreted by the authenticated `kind`.
+
+Security rules:
+
+- The metadata is plaintext but every field except `crypto.ciphertext` is authenticated as AES-GCM AAD, via a canonical re-serialization of the parsed values (reformatting the JSON is harmless; changing any value fails authentication).
+- Managed reads require the authenticated `id` to match the filename id.
+- Metadata from `list`, `get_meta`, or `inspect` is not proof of migration success.
+- Passworded `verify` or a real decrypt is required before trusting a file for migration state.
+- Unknown JSON fields are rejected (`deny_unknown_fields`); nothing unauthenticated can ride along in the file.
+- Reads cap file and ciphertext sizes before parsing; writes reject anything the read cap would refuse later.
+- Unknown versions, invalid ids, invalid KDF/cipher params, malformed files, and auth failures return typed errors.
+
+Current crypto:
+
+- Argon2id, 19 MiB, 2 iterations, parallelism 1 (OWASP-recommended; the password is a 256-bit random device secret, so the KDF is defense-in-depth).
+- Random 16-byte salt per encryption.
+- AES-256-GCM with random 12-byte nonce and 16-byte tag.
+- Temp-file write, fsync, atomic rename, directory sync.
+- Secret files are created with owner read/write permissions.
+
+## Concurrency
+
+`bsv_home_keystore` serializes every file operation (create, read, delete, migrate) through a process-global lock (`OnceLock<Mutex<()>>` in `storage/queue.rs`); each `FileKeystore` operation takes the lock before touching disk.
+
+- The guarantee holds regardless of how callers construct keystores. Both apps provide a shared `BsvHomeKeystore`; the remaining Android transaction-signing adapter can also open a transient instance. Every instance serializes through the same static lock.
+- Concurrent create/read/delete on one wallet — across threads and across separate keystore instances through the UniFFI binding — cannot corrupt the file or produce duplicates, and create stays idempotent (deterministic id, atomic rename).
+- A poisoned lock is recovered with `PoisonError::into_inner`, so subsequent file access remains serialized instead of panicking across the FFI boundary.
+- Coverage: Android instrumented `BsvHomeKeystoreConcurrencyTest` races 8 threads through create/read/delete on one wallet from independent `BsvHomeKeystore` instances.
+
+## Secret Payload
+
+The encrypted payload is exactly one of:
+
+- sanitized BIP-39 mnemonic phrase
+- raw private-key bytes
+- an authenticated `hd_recovery` JSON payload containing the English phrase, BIP39 passphrase, account root and standard/legacy derivation mode
+
+Wallet names, app wallet ids, account lists, addresses, public keys, xpubs and WalletCore `activeAccounts` are not secret payload metadata. HD recovery configuration is encrypted inside its payload; it must survive backup and restore together with the phrase.
+
+## Account Public Keys
+
+Public keys live in the mobile DB account rows (`Account.extended_public_key`), not in the keystore file. `bsv_home_derivation` populates the field whenever it creates an account (import, create, and chain backfill via `add_accounts`):
+
+- Bitcoin-family chains store the extended public key (xpub/zpub).
+- Cardano stores nothing (no single reusable public key).
+- Every other chain stores the hex-encoded raw public key (secp256k1 or ed25519 per chain).
+
+Existing BSV accounts keep their hex-encoded raw public key in the stable account row. Their HD account xpub lives separately in local wallet address-pool metadata. New explicit HD recovery and xPub observer accounts can carry the account xpub in the account row. Core merges the verified profile when exporting a public cold-wallet Pairing, without rewriting an old wallet identity. Public pairing QR is an explicit user action; xpubs must not enter routine RPC payloads or logs. Address 0 must match the stored stable account before an existing wallet can initialize the pool. New/imported mnemonic wallets atomically save wallet/account and initial pool metadata; existing wallets initialize through the current authentication/password port on first BSV use. Database migration and startup do not decrypt wallets for this upgrade.
+
+Consumers read the field from the app DB — e.g. WalletConnect serializes the Sui account public key into `sessionProperties.sui_getAccounts`.
+
+Caveat: account rows created by the pre-v4 WalletCore import only carry Bitcoin-family xpubs (empty otherwise). v3 migration moves the secret file only and never rewrites DB account rows, and chain backfill only adds accounts for missing chains. Rows from old imports therefore keep an empty public key until the user re-imports the wallet — that re-import is the supported remedy when a flow needs the public key (e.g. Sui WalletConnect).
+
+## Recovery Phrase Generation
+
+New mnemonics are generated in `bsv_home_keystore` (`Mnemonic::generate`):
+
+- Entropy comes from `bsv_home_crypto::random::bytes`, which calls `getrandom::fill` — reading the OS CSPRNG directly (`getrandom(2)` / `getentropy` / `BCryptGenRandom`), not a userspace or seeded PRNG.
+- 32 random bytes are drawn and truncated to the BIP-39 entropy length for the requested word count (16 bytes / 12 words … 32 bytes / 24 words), then encoded as an English BIP-39 phrase.
+- Entropy is held in `Zeroizing` and wiped once the phrase is built.
+- Imported phrases are NFKD-normalized, lowercased, and validated against the BIP-39 English wordlist before use.
+
+## Password Boundary
+
+iOS:
+
+- The app-wide password is stored as a lowercase hex string in Keychain under the key `password`.
+- WalletCore v3 migration passes UTF-8 bytes of that hex string.
+- v4 APIs pass decoded raw bytes.
+
+Android:
+
+- Legacy wallet-id entries in the `wallet_password` secure-store namespace are migration inputs only.
+- New wallets and routine signing use the single app-wide value stored under `password`; it is not mirrored under wallet ids.
+- Startup first migrates any WalletCore v3 file with its legacy wallet password, then `BsvHomeWalletService.migrate_to_shared_password` re-encrypts v4 files as needed and deletes the legacy wallet-id entries. A wallet whose file does not accept its legacy password keeps that entry and is reported in the returned error; the other wallets migrate regardless, so one broken keystore never blocks signing for the rest.
+- The shared password may be created only while importing the first stored wallet.
+- WalletCore v3 migration and v4 APIs pass decoded raw bytes.
+
+Empty v4 passwords are rejected. v3 empty passwords are accepted only for legacy compatibility.
+
+## Keystore-Internal Signing
+
+Routine signing runs inside Rust. The decrypted key never crosses the UniFFI/JNI boundary. The app passes the keystore id, chain, prepared input, and password bytes, and receives only signatures.
+
+- `BsvHomeKeystore.sign(keystore_id, chain, input, password) -> [signature]`: loads the key internally, routes by transaction input type (transfer, token transfer, swap, stake, token approval, perpetual, account action, data, etc.), signs, and returns signatures. Multi-signature chains return more than one.
+- `BsvHomeKeystore.sign_auth(keystore_id, chain, hash, password) -> signature`: signs a device / WalletConnect auth hash.
+- `MessageSigner.sign_with_keystore(keystore, keystore_id, password) -> signature`: typed/personal message signing, selected by `signType` (EIP-191, EIP-712, SIWE, Sui/Ton/Tron personal, base58).
+
+Boundaries:
+
+- Raw-key signers are not on the UniFFI surface: `ChainTransactionSigner`, `MessageSigner.sign(private_key)`, and `sign_auth_message_hash` are internal Rust only (used by `BsvHomeKeystore` and tests).
+- `export_private_key` and `export_recovery_phrase` remain for explicit reveal/backup only, never for routine signing. The raw `private_key` helper is Rust-test-only and is not exported over UniFFI.
+- The signing router (`ChainTransactionSigner`) lives in `bsv_home_core`, over the per-chain `bsv_home_*` signer crates. `bsv_home_keystore` stays storage-only.
+- App-side password bytes are zeroized after each call (Android `withGemKeystore`, iOS `withV4Password`).
+
+BSV HD transaction metadata carries restricted receive/change locators and verified per-input amounts/scripts. `BsvHomeKeystore.sign` decrypts the mnemonic or HD recovery once, verifies the actual account profile against the stable sender, derives the selected child keys within Rust, and dispatches per-input ForkID signing. Mnemonic records retain the original 236 profile; HD recovery preserves its path, passphrase and derivation mode. `wallet_secret_kind` reads the real keystore record; full HD backups use Recovery rather than Words. Cold signing additionally binds the complete Pairing and reviewed Request; see [BSV cold wallet](BSV_COLD_WALLET.md). Child key bytes use `Zeroizing`; held BIP32 private keys and chain codes are erased when dropped. Library-internal Copy values and cryptographic temporary copies cannot be fully erased by this wrapper. No child key, xprv or phrase is returned over UniFFI. Single-private-key wallets retain the original single-address signer. Durable public reservations and versioned signed checkpoints belong to the wallet/confirm services, outside `bsv_home_keystore`; replay validates wallet ownership and the exact signed plan before using the original bytes.
+
+App entrypoints:
+
+- Transaction signing uses the platform `KeystoreTransactionSigner`: [iOS](../ios/Packages/BsvHomeCoreServices/Sources/Signer/KeystoreTransactionSigner.swift) delegates to `LocalKeystore.sign`, while [Android](../android/data/services/gemstone/src/main/kotlin/com/gemwallet/android/data/services/gemstone/keystore/KeystoreTransactionSigner.kt) uses `withGemKeystore`.
+- WalletConnect message signing is owned by [`BsvHomeSignMessageService`](../core/bsv_home_core/src/services/wallet_connect/sign_message.rs).
+- Wallet authentication signing is owned by [`BsvHomeAuthService`](../core/bsv_home_core/src/services/auth/mod.rs).
+
+## Device Authentication
+
+The `Gem <base64>` `Authorization` header format lives in the shared `bsv_home_auth` crate, used by both the client and the backend — see [DEVICE_AUTHENTICATION.md](DEVICE_AUTHENTICATION.md) for the wire format.
+
+Keystore side:
+
+- `bsv_home_core` exposes the client wrappers over UniFFI (over `bsv_home_auth`): `generate_device_key_pair`, `device_public_key`, `sign_device_auth`.
+- The device key pair is generated in Rust so both apps stay consistent. The private key is a 32-byte Ed25519 seed drawn from `getrandom` (the OS CSPRNG, the same source as recovery-phrase entropy), held in the app's secure storage; the signature is produced by Rust.
+
+## iOS App Contract
+
+Source paths:
+
+- [Local keystore and Wallet legacy-id extension](../ios/Packages/BsvHomeCoreServices/Sources/Keystore/LocalKeystore.swift)
+- [Transaction signer adapter](../ios/Packages/BsvHomeCoreServices/Sources/Signer/KeystoreTransactionSigner.swift)
+- [Core wallet service](../core/bsv_home_core/src/services/wallet/mod.rs)
+- [Core BsvHomeKeystore API](../core/bsv_home_core/src/keystore/keystore.rs)
+
+Rules:
+
+- `BsvHomeKeystore.keystoreId(walletId:)` derives the keystore identifier from `wallet.id.id`.
+- v4 wallets should keep `Wallet.externalId == nil`.
+- `Wallet.externalId` is legacy-only and exposed as `legacyV3Id = externalId ?? id.id`.
+- iOS v3 migration locates the WalletCore file using `legacyV3Id`; v4 files share the same directory but never match its name, suffix, or JSON `id` rules.
+- iOS passes `wallet.id.id` to `migrate_v3`; Rust derives the keystore id and verifies the binding.
+- iOS does not update the wallet DB after v3 migration.
+- A verified migration deletes the v3 file; the migration-pending marker is the v3 file's presence (see Migration Semantics).
+- If migration fails before the verified v4 write, the v3 file remains and startup retries later.
+- If the app crashes after v4 write, the next launch re-runs migration idempotently and finishes the v3 cleanup.
+- Startup logs per-wallet migration failures instead of swallowing them silently.
+- Deleting a wallet removes every secret copy: the v4 file and any v3 file that never migrated. It does not delete the shared app-wide password.
+
+Important test coverage:
+
+- v3 file keyed by `wallet.id.id`
+- v3 file keyed by real legacy WalletCore `externalId` UUID
+- migration idempotency
+- v4 read after migration without DB `externalId` update
+
+## Android App Contract
+
+Source paths:
+
+- `android/gemcore/src/main/kotlin/com/gemwallet/android/ext/Wallet.kt`
+- `android/app/src/main/kotlin/com/gemwallet/android/services/MigrateV3KeystoreService.kt`
+- `android/app/src/main/kotlin/com/gemwallet/android/services/CheckAccountsService.kt`
+
+Rules:
+
+- Android computes `Wallet.keystoreId` from `wallet.id.id` on demand.
+- Android does not persist an `external_id` for v4 lookup.
+- Android v3 files are located at `<dataDir>/<wallet.id.id>`.
+- Android passes `wallet.id.id` to `migrate_v3`; Rust derives the keystore id, verifies the binding, and deletes the v3 file.
+- Android runs migration whenever the v3 file still exists; its presence is the migration-pending marker.
+- There is no v3-to-v4 DB update.
+- Migration failures are logged and retried next launch while the v3 file remains.
+- Account backfill uses Rust `add_accounts`; it should not export mnemonic/private key into Kotlin.
+- Deleting a wallet removes every secret copy (the v4 file and any v3 file that never migrated); it does not delete the shared app-wide password.
+
+## Migration Semantics
+
+- Normal v4 decrypt APIs do not silently upgrade or rewrite v3 files.
+- v3 support exists only for explicit migration.
+- `migrate_v3` takes the app's `wallet_id`; Rust derives the deterministic keystore id from it.
+- After import, Rust verifies the binding: the migrated secret must derive the wallet id (account address + wallet type) it is stored under. On mismatch the staged v4 file is deleted, the v3 file is preserved, and the migration fails.
+- A verified migration deletes the v3 file. Its presence is the migration-pending marker; both apps run migration while it exists and skip once it is gone, so Argon2id is not re-run on normal launches.
+- If the target v4 file already exists, Rust authenticates it with the supplied new password, re-verifies the binding, and finishes the v3 cleanup (crash-safe idempotent retry).
+- A corrupt staged v4 file (parse/authenticated-header corruption, not a wrong password) is deleted and rebuilt from the v3 file on the next migration run.
+- Wrong password never overwrites an existing v4 file.
+- `BsvHomeWalletService.delete_wallet` removes every on-disk copy (the v4 file and any v3 file that never migrated) before deleting wallet metadata, so no secret is orphaned. Deleting one wallet must not delete the shared app-wide password.
+- Downgrading to a pre-v4 build after migration is not supported: the v3 file is gone once the wallet has migrated.
+- Legacy v3 files written by WalletCore can carry an empty scrypt salt. The v3 reader accepts salt lengths from zero up to the maximum and relies on the MAC for authentication. Do not reintroduce a minimum salt length; it strands real wallets with a blank phrase or a missing-password error (fixture `core/crates/bsv_home_keystore/testdata/v3_empty_salt_mnemonic.json`, bsv_home_core test `migrate_v3_empty_salt_mnemonic_round_trip`).
+
+## Mobile Import/Create Flow
+
+- Preview/import planning derives wallet id and accounts without writing a keystore file.
+- Create/import writes v4 under `keystore_id_for_wallet(wallet_id)`.
+- `BsvHomeWalletService` inserts wallet/account metadata through the app's store adapter.
+- New v4 wallets never write WalletCore v3 files.
+- iOS maps new v4 wallets with `externalId: nil`.
+- Android stores no external id for v4 lookup.
+
+## Security Invariants
+
+- Do not log, print, persist, snapshot, or expose mnemonic/private-key material.
+- Routine maintenance paths must call Rust APIs returning non-secret outputs.
+- Routine signing runs inside Rust (`BsvHomeKeystore.sign`/`sign_auth`, `MessageSigner.sign_with_keystore`); the decrypted key does not cross the FFI boundary, and raw-key signers are not exported.
+- Mnemonic/private-key export is only for explicit backup/recovery UI.
+- Deleting a wallet must remove every on-disk secret copy (v4 and any v3) before wallet metadata; retain the shared app-wide password.
+- Header inspection is diagnostic only and never migration proof.
+- All path construction must go through validated keystore ids.
+- Keep v3 parsing capped and typed-error based.
+- Keep WalletCore references out of production keystore flows except explicit legacy migration support during rollout.
+- A thrown Keychain or Keystore read error is not "absent". Only a confirmed not-found result may create a new password; errors propagate and never remove, overwrite, or regenerate existing password or keystore material.
+- Uninstall semantics differ by platform: iOS Keychain items survive app removal, so a broken password item persists across reinstall, while Android app removal wipes the password store, master key, and keystore files, so reinstalling without a backed-up phrase loses the wallet. Recovery guidance and support scripts must never recommend reinstall as a fix.
+
+## Misc
+
+### Benchmarks
+
+The Argon2id KDF defaults dominate every encrypt/decrypt. Measure with:
+
+- Rust (release): `cargo bench -p bsv_home_keystore --features storage`
+- iOS: `KeystoreBenchmarkTests` in the Keystore package (prints medians)
+- Android: `BsvHomeKeystoreBenchmarkTest` instrumented test (logs medians, `BsvHomeKeystoreBenchmark` tag)
+
+Mobile numbers are only representative on a real device with a release BsvHomeCore build; debug builds are several times slower.
+
+### Inspecting v4 Files
+
+v4 files are plaintext JSON, so `cat`/`jq` work directly for debugging. The metadata is unauthenticated until a passworded `verify`/decrypt runs in Rust — do not use it to decide migration success, wallet ownership, or secret validity.
+
+## Known Follow-Ups
+
+- Migration failures are logged and retried on next launch; decide whether they also need durable telemetry or user-visible recovery.
+- Adding another platform backend (web over IndexedDB): implement the `Keystore` trait over that platform's record storage, reusing `storage/secret.rs` to seal and open the v4 envelope and the `SecretPayload` constructors to validate input. The trait is synchronous today, so a browser backend needs an in-memory mirror or an async variant.

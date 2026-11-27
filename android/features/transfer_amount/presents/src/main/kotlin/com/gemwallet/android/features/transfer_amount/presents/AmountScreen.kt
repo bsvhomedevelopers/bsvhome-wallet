@@ -1,0 +1,103 @@
+package com.gemwallet.android.features.transfer_amount.presents
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gemwallet.android.features.transfer_amount.viewmodels.AmountViewModel
+import com.gemwallet.android.features.transfer_amount.viewmodels.providers.AmountStakeProvider
+import com.gemwallet.android.features.transfer_amount.viewmodels.providers.AmountTransferProvider
+import uniffi.gemstone.GemTransferData
+import com.gemwallet.android.ui.components.animation.navigationSlideTransition
+import com.gemwallet.android.ui.components.screen.LoadingScene
+
+@Composable
+fun AmountScreen(
+    onCancel: () -> Unit,
+    onConfirm: (GemTransferData) -> Unit,
+    viewModel: AmountViewModel = hiltViewModel(),
+) {
+    val provider = viewModel.provider
+    val title = provider.title.asString()
+    val assetInfo = provider.assetInfo.collectAsStateWithLifecycle().value ?: run {
+        LoadingScene(title, onCancel)
+        return
+    }
+
+    var isSelectValidator by remember { mutableStateOf(false) }
+    val canPickValidator = provider is AmountStakeProvider &&
+        provider.canSelectValidator.collectAsStateWithLifecycle().value
+    BackHandler(isSelectValidator && canPickValidator) { isSelectValidator = false }
+
+    val amountInputType by viewModel.amountInputType.collectAsStateWithLifecycle()
+    val error by viewModel.amountError.collectAsStateWithLifecycle()
+    val equivalent by viewModel.amountEquivalent.collectAsStateWithLifecycle()
+    val available by viewModel.availableBalanceFormatted.collectAsStateWithLifecycle()
+    val reserve by viewModel.reserveForFeeFormatted.collectAsStateWithLifecycle()
+    val buttonState by viewModel.buttonState.collectAsStateWithLifecycle()
+    val input by provider.input.collectAsStateWithLifecycle()
+    val amountType by provider.amountType.collectAsStateWithLifecycle()
+    val canChangeValue = input?.canChangeValue ?: true
+    val showsAssetBalance = input?.showsAssetBalance ?: true
+    val usesWholeAmounts = input?.usesWholeAmounts ?: false
+
+    AnimatedContent(
+        isSelectValidator && canPickValidator,
+        transitionSpec = { navigationSlideTransition(forward = targetState) },
+        label = "amount-validator-pick",
+    ) { showingPicker ->
+        if (showingPicker && provider is AmountStakeProvider) {
+            val validator by provider.validatorState.collectAsStateWithLifecycle()
+            val selection by provider.validatorSelection.collectAsStateWithLifecycle()
+            selection?.let { resolved ->
+                ValidatorsScreen(
+                    selection = resolved,
+                    selectedValidatorId = validator?.id.orEmpty(),
+                    onCancel = { isSelectValidator = false },
+                    onSelect = {
+                        provider.selectValidator(it)
+                        isSelectValidator = false
+                    },
+                )
+            }
+        } else {
+            AmountScene(
+                title = title,
+                amount = viewModel.amount,
+                amountInputType = amountInputType,
+                asset = (provider as? AmountTransferProvider)?.displayAsset(assetInfo.asset) ?: assetInfo.asset,
+                currency = viewModel.currency,
+                canSwitchInputType = amountType?.canSwitchInputType(assetInfo.price?.price?.price, amountInputType) ?: false,
+                readOnly = !canChangeValue,
+                usesWholeAmounts = usesWholeAmounts,
+                showsAssetBalance = showsAssetBalance,
+                error = error,
+                equivalent = equivalent,
+                availableBalance = available,
+                reserveForFee = reserve,
+                buttonState = buttonState,
+                onAction = { action ->
+                    when (action) {
+                        AmountAction.Next -> viewModel.onNext(onConfirm)
+                        is AmountAction.SetAmount -> viewModel.updateAmount(action.amount)
+                        AmountAction.SwitchInputType -> viewModel.switchInputType()
+                        AmountAction.SetMaxAmount -> viewModel.onMaxAmount()
+                        AmountAction.Cancel -> onCancel()
+                    }
+                },
+                additionParams = {
+                    ProviderExtras(
+                        provider = provider,
+                        amount = viewModel.amount,
+                        onPickValidator = { isSelectValidator = true },
+                    )
+                },
+            )
+        }
+    }
+}
